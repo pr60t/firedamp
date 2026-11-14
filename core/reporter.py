@@ -1,6 +1,6 @@
 """
 Reporting Engine & Firedamp Index Calculation.
-Formats audit results, computes isolation risk scores, and outputs Rich UI telemetry.
+Formats audit results, computes isolation risk scores, and outputs mine-safety atmospheric telemetry.
 """
 
 from __future__ import annotations
@@ -39,10 +39,22 @@ class AuditSummary:
 
 
 class FiredampReporter:
-    """Handles terminal rendering and JSON export for RAG isolation audits."""
+    """Handles mine-safety atmospheric telemetry rendering and JSON export for RAG isolation audits."""
 
     def __init__(self, console: Optional[Console] = None):
         self.console = console or Console()
+
+    def log_success(self, message: str) -> None:
+        """Log a completed/successful operation with [+] glyph."""
+        self.console.print(f"[bold green][+][/bold green] {message}")
+
+    def log_active(self, message: str) -> None:
+        """Log an active process/transitional event with [~] glyph."""
+        self.console.print(f"[bold cyan][~][/bold cyan] {message}")
+
+    def log_alert(self, message: str) -> None:
+        """Log a gas leak / atmospheric hazard with [🚨] glyph."""
+        self.console.print(f"[bold red][🚨][/bold red] {message}")
 
     def calculate_summary(
         self,
@@ -64,7 +76,7 @@ class FiredampReporter:
         num_compromised = len(all_compromised_canaries)
         num_planted = max(len(planted_canaries), 1)
 
-        # Calculate Firedamp Index (0.0 = completely isolated/safe, 100.0 = catastrophic bleed)
+        # Calculate Firedamp Index (0.0 = clean atmosphere, 100.0 = catastrophic bleed)
         if not leaked_probes:
             index_score = 0.0
             status = "CLEAR"
@@ -100,67 +112,118 @@ class FiredampReporter:
   | |    | | | |  __/| (_| | (_| | | | | | | |_) |   
   |_|    |_|_|  \___| \__,_|\__,_|_| |_| |_| .__/    
                                            | |       
-        Canaries for your RAG stack        |_|       
+     Mine Safety & Atmospheric Sensor for RAG |_|       
         """
         self.console.print(f"[bold cyan]{banner}[/bold cyan]")
 
     def render_summary(self, summary: AuditSummary) -> None:
         self.console.print("\n")
         if summary.status == "CLEAR":
+            panel_content = Text()
+            panel_content.append("[+] AIRWAY SECURE // 0.0 ppm FIREDAMP\n", style="bold green")
+            panel_content.append(f"Firedamp Index: {summary.firedamp_index} / 100.0 [NOMINAL]\n", style="bold white")
+            panel_content.append("All canary cages intact. Zero cross-tenant atmospheric bleed detected.", style="green")
+
             status_panel = Panel(
-                Text(
-                    f"✓ STATUS: CLEAR\nFiredamp Index: {summary.firedamp_index}/100.0\n"
-                    "No canary tokens detected in unauthorized retrieval streams. Isolation holds.",
-                    style="bold green",
-                    justify="center"
-                ),
-                title="[bold green]RAG SHAFT INTEGRITY VERIFIED[/bold green]",
-                border_style="green"
+                panel_content,
+                title="[bold green]ATMOSPHERIC TELEMETRY REPORT // MINE SHAFT CLEAR[/bold green]",
+                border_style="green",
+                padding=(1, 2)
             )
         else:
+            panel_content = Text()
+            panel_content.append("[🚨] HAZARDOUS ATMOSPHERIC BLEED DETECTED!\n", style="bold red")
+            panel_content.append(
+                f"Firedamp Index: {summary.firedamp_index} / 100.0 [CRITICAL HAZARD]\n",
+                style="bold red"
+            )
+            panel_content.append(
+                f"Canaries compromised! {summary.total_leaks_detected} cross-tenant gas leak(s) intercepted.",
+                style="bold yellow"
+            )
+
             status_panel = Panel(
-                Text(
-                    f"⚠ DANGER: GAS DETECTED IN THE RAG SHAFT!\n"
-                    f"Firedamp Index: {summary.firedamp_index}/100.0 (High Exposure)\n"
-                    f"{summary.total_leaks_detected} unauthorized retrieval leaks detected across tenant boundaries!",
-                    style="bold red",
-                    justify="center"
-                ),
-                title="[bold red]CROSS-TENANT LEAKAGE ALERT[/bold red]",
-                border_style="red"
+                panel_content,
+                title="[bold red]ATMOSPHERIC TELEMETRY REPORT // GAS IN THE SHAFT[/bold red]",
+                border_style="red",
+                padding=(1, 2)
             )
 
         self.console.print(status_panel)
 
-        # Telemetry metrics table
-        table = Table(title="Audit Telemetry Breakdown", border_style="dim")
-        table.add_column("Metric", style="cyan", no_wrap=True)
-        table.add_column("Value", style="bold white")
-        table.add_column("Assessment", style="magenta")
+        # Atmospheric sensor telemetry table
+        table = Table(
+            title="Atmospheric Sensor Readings & Safety Margins",
+            border_style="cyan",
+            header_style="bold cyan"
+        )
+        table.add_column("Sensor Channel", style="cyan", no_wrap=True)
+        table.add_column("Parameter / Target", style="white")
+        table.add_column("Reading", style="bold white")
+        table.add_column("Atmospheric Status", style="bold")
 
-        table.add_row("Target Platform", summary.target_name, summary.target_url)
-        table.add_row("Canaries Planted (Alice)", str(summary.total_canaries_planted), "Isolated Baseline")
-        table.add_row("Probes Dispatched (Bob)", str(summary.total_probes_dispatched), "Adversarial Probing")
         table.add_row(
-            "Direct Generation Leaks",
-            str(summary.direct_leaks),
-            "[red]Critical[/red]" if summary.direct_leaks > 0 else "[green]Nominal[/green]"
+            "Airway Intake",
+            summary.target_name,
+            summary.target_url,
+            "[green]Connected[/green]"
         )
         table.add_row(
-            "Context / Citation Leaks",
-            str(summary.context_leaks),
-            "[yellow]Elevated[/yellow]" if summary.context_leaks > 0 else "[green]Nominal[/green]"
+            "Canary Cages Seeded",
+            "Alice (Data Owner)",
+            f"{summary.total_canaries_planted} synthetic canaries",
+            "[green]Seeded[/green]"
         )
         table.add_row(
-            "Firedamp Index Score",
-            f"{summary.firedamp_index}/100.0",
-            "[red]Gas Detected[/red]" if summary.firedamp_index > 0 else "[green]Safe / Isolated[/green]"
+            "Exfiltration Probes",
+            "Bob (Unauthorized)",
+            f"{summary.total_probes_dispatched} air samples",
+            "[green]Evaluated[/green]"
+        )
+        table.add_row(
+            "Direct Generation Bleed",
+            "LLM Assistant Stream",
+            f"{summary.direct_leaks} leak(s)",
+            "[bold red][🚨] CRITICAL BLEED[/bold red]" if summary.direct_leaks > 0 else "[bold green]0.0 ppm (Clear)[/bold green]"
+        )
+        table.add_row(
+            "Latent Context Bleed",
+            "Citations & Chunks",
+            f"{summary.context_leaks} leak(s)",
+            "[bold yellow][🚨] ELEVATED[/bold yellow]" if summary.context_leaks > 0 else "[bold green]0.0 ppm (Clear)[/bold green]"
+        )
+        table.add_row(
+            "Firedamp Index",
+            "Composite Risk Exposure",
+            f"{summary.firedamp_index} / 100.0",
+            "[bold red][🚨] GAS DETECTED[/bold red]" if summary.firedamp_index > 0 else "[bold green][+] AIRWAY SAFE[/bold green]"
         )
 
         self.console.print(table)
+
+        # If leaks occurred, render a punchy audit log of breached tokens
+        leaked_results = [p for p in (summary.probe_results or []) if p.get("severity") != LeakSeverity.NONE]
+        if leaked_results:
+            leak_table = Table(
+                title="[bold red]Contaminated Airway Sample Logs[/bold red]",
+                border_style="red",
+                header_style="bold red"
+            )
+            leak_table.add_column("Breach Vector", style="yellow")
+            leak_table.add_column("Probe Prompt", style="white")
+            leak_table.add_column("Compromised Canary", style="bold red")
+
+            for item in leaked_results:
+                tokens = ", ".join(item.get("leaked_canaries", [])) or "Token extracted"
+                leak_table.add_row(
+                    item.get("severity", "").upper(),
+                    item.get("probe_prompt", "")[:50] + "...",
+                    tokens
+                )
+            self.console.print(leak_table)
 
     def export_json(self, summary: AuditSummary, file_path: str) -> None:
         """Exports audit summary to a formatted JSON file for CI/CD pipelines."""
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(summary.to_dict(), f, indent=2)
-        self.console.print(f"[dim]Audit report successfully saved to [bold]{file_path}[/bold][/dim]")
+        self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold][/dim]")

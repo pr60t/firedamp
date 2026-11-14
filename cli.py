@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Firedamp CLI: Canaries for your RAG stack.
-Automated cross-tenant data leakage detection and isolation auditing.
+Automated cross-tenant data leakage detection and atmospheric isolation auditing.
 """
 
 from __future__ import annotations
@@ -37,71 +37,88 @@ def run_scan_flow(
     fail_on_leak: bool = False,
     dry_run: bool = False,
 ) -> int:
-    """Core execution pipeline for an isolation scan."""
+    """Execute atmospheric safety testing & cross-tenant leak detection across RAG shafts."""
     reporter.print_banner()
 
-    console.print(f"[bold cyan][PHASE 1: TARGET INITIALIZATION][/bold cyan]")
+    # Step 1: Target Airway & Shaft Descent
     if dry_run:
-        console.print("[yellow]Running in DRY-RUN simulation mode (bypassing external container)[/yellow]")
+        reporter.log_active("Engaging atmospheric simulation mode (dry-run, bypassing physical containers)")
         env = TargetEnvironment(
             name=target,
             base_url="http://mock-simulation:8080",
             managed_by_docker=False
         )
+        reporter.log_success(f"Simulation airway calibrated at [bold]{env.base_url}[/bold]")
     elif target_url:
-        console.print(f"Connecting to existing target deployment at [bold]{target_url}[/bold]...")
-        manager = RemoteTargetManager(target_url=target_url, target_name=target)
-        try:
-            env = manager.start(timeout=10)
-        except Exception as e:
-            console.print(f"[red]Failed to connect to target: {e}[/red]")
-            return 1
+        with console.status(f"[bold cyan]Connecting to active airway at [bold]{target_url}[/bold]...", spinner="dots"):
+            manager = RemoteTargetManager(target_url=target_url, target_name=target)
+            try:
+                env = manager.start(timeout=15)
+            except Exception as e:
+                reporter.log_alert(f"Failed to access target airway {target_url}: {e}")
+                return 1
+        reporter.log_success(f"Airway connected: Target verified at [bold]{env.base_url}[/bold]")
     else:
-        console.print(f"Provisioning ephemeral Docker container for [bold]{target}:{version}[/bold]...")
-        manager = DockerTargetManager(target_name=target)
-        try:
-            env = manager.start(version=version, timeout=45)
-        except Exception as e:
-            console.print(f"[yellow]Docker provisioning note: {e}[/yellow]")
-            console.print("[dim]Falling back to simulation mode for this environment...[/dim]")
-            env = TargetEnvironment(name=target, base_url="http://localhost:8080", managed_by_docker=False)
+        with console.status(
+            f"[bold cyan]Descending into shaft... Pressurizing container [bold]{target}:{version}[/bold]...",
+            spinner="bouncingBar"
+        ):
+            manager = DockerTargetManager(target_name=target)
+            try:
+                env = manager.start(version=version, timeout=45)
+            except Exception as e:
+                reporter.log_active(f"Docker provisioning note: {e}")
+                reporter.log_active("Falling back to local atmospheric simulation...")
+                env = TargetEnvironment(name=target, base_url="http://localhost:8080", managed_by_docker=False)
+        reporter.log_success(f"Target airway online at [bold]{env.base_url}[/bold]")
 
-    console.print(f"✓ Target environment active at [bold]{env.base_url}[/bold]\n")
-
-    # Phase 2: Canary Generation & Alice Ingestion
-    console.print(f"[bold cyan][PHASE 2: CANARY SYNTHESIS & INGESTION][/bold cyan]")
+    # Step 2: Canary Cage Seeding (Alice)
     engine = ProbingEngine()
     decoys = engine.generate_decoys(count=canaries, owner="Alice")
     planted_tokens = [c for d in decoys for c in d.canaries]
 
-    console.print(f"Generated {len(decoys)} decoy documents with {len(planted_tokens)} verifiable canaries.")
-    
-    # Ingestion via Adapter
-    try:
-        adapter = get_adapter(target)
-    except Exception:
-        from adapters.openwebui import OpenWebUIAdapter
-        adapter = OpenWebUIAdapter()
+    with console.status(
+        f"[bold cyan]Synthesizing {len(planted_tokens)} verifiable canaries across {len(decoys)} decoy records...",
+        spinner="dots"
+    ) as status:
+        try:
+            adapter = get_adapter(target)
+        except Exception:
+            from adapters.openwebui import OpenWebUIAdapter
+            adapter = OpenWebUIAdapter()
 
-    if not dry_run:
-        alice_session = adapter.authenticate_user(env.base_url, username="alice_owner", password="AegisPassword!123", role="owner")
-        for doc in decoys:
-            adapter.ingest_document(env.base_url, alice_session, doc)
-    console.print(f"✓ Successfully ingested canary documents into Alice's tenant scope.\n")
+        if not dry_run:
+            status.update("[bold cyan]Authorizing Alice session & seeding canary cages in private tenant scope...")
+            alice_session = adapter.authenticate_user(
+                env.base_url,
+                username="alice_owner",
+                password="AegisPassword!123",
+                role="owner"
+            )
+            for doc in decoys:
+                adapter.ingest_document(env.base_url, alice_session, doc)
 
-    # Phase 3: Adversarial Multi-Tenant Probing (Bob)
-    console.print(f"[bold cyan][PHASE 3: ADVERSARIAL MULTI-TENANT PROBING][/bold cyan]")
+    reporter.log_success(
+        f"Seeded {len(planted_tokens)} canaries across {len(decoys)} documents in Alice's private shaft."
+    )
+
+    # Step 3: Adversarial Atmospheric Probing (Bob)
+    reporter.log_active("Authorizing Bob (unprivileged querier) for cross-tenant atmospheric sampling...")
     if not dry_run:
-        bob_session = adapter.authenticate_user(env.base_url, username="bob_attacker", password="BobPassword!456", role="attacker")
+        bob_session = adapter.authenticate_user(
+            env.base_url,
+            username="bob_attacker",
+            password="BobPassword!456",
+            role="attacker"
+        )
 
     probe_results = []
     strategies = engine.PROBE_STRATEGIES[:canaries]
-    
-    with console.status("[bold green]Dispatching exfiltration probes across retrieval boundaries...") as status:
+
+    with console.status("[bold yellow]Drawing atmospheric samples across tenant boundaries...", spinner="dots") as status:
         for idx, prompt in enumerate(strategies, 1):
-            status.update(f"[bold green]Dispatching probe {idx}/{len(strategies)}...")
+            status.update(f"[bold yellow]Sampling probe {idx}/{len(strategies)}: [dim]{prompt[:45]}...[/dim]")
             if dry_run:
-                # In dry run, simulate clean isolation
                 resp_text = "I do not have access to any documents matching that query."
                 retrieved_ctx = []
             else:
@@ -115,8 +132,12 @@ def run_scan_flow(
             )
             probe_results.append(res)
 
-    # Phase 4: Reporting & Firedamp Index
-    console.print(f"[bold cyan][PHASE 4: AUDIT EVALUATION & METRICS][/bold cyan]")
+            if res.is_leak:
+                reporter.log_alert(
+                    f"Gas breach on sample #{idx}! Canary exposed: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                )
+
+    # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
         target_name=target,
         target_url=env.base_url,
@@ -130,10 +151,12 @@ def run_scan_flow(
 
     # Teardown if managed by Docker
     if env.managed_by_docker:
-        manager.stop(env)
+        with console.status("[bold cyan]Depressurizing airway and tearing down test container...", spinner="dots"):
+            manager.stop(env)
+        reporter.log_success("Container airway safely decommissioned.")
 
     if fail_on_leak and summary.firedamp_index > 0:
-        console.print("[bold red]Gas detected! Exiting with code 1 as --fail-on-leak is enabled.[/bold red]")
+        reporter.log_alert("Hazardous atmosphere detected! Halting execution with exit code 1 (--fail-on-leak).")
         return 1
 
     return 0
@@ -142,34 +165,38 @@ def run_scan_flow(
 def list_targets_flow() -> None:
     """Lists available target platform adapters."""
     reporter.print_banner()
-    table = Table(title="Available Firedamp Target Adapters", border_style="cyan")
+    table = Table(
+        title="Firedamp Atmospheric Sensors & Target Adapters",
+        border_style="cyan",
+        header_style="bold cyan"
+    )
     table.add_column("Adapter", style="bold green")
-    table.add_column("Type", style="yellow")
-    table.add_column("Status", style="white")
+    table.add_column("Airway Architecture", style="yellow")
+    table.add_column("Sensor Status", style="white")
     table.add_column("Description", style="dim")
 
     table.add_row(
         "openwebui",
         "RAG WebUI / API",
-        "Active",
-        "Open WebUI (formerly Ollama WebUI) multi-user session & RAG knowledge base"
+        "[bold green][+] Active[/bold green]",
+        "Open WebUI multi-tenant knowledge collections & chat retrieval pipelines"
     )
     table.add_row(
         "dify",
         "App / RAG Workflow",
-        "Planned",
+        "[yellow][~] Planned[/yellow]",
         "Dify.ai workspace document knowledge collections & agent apps"
     )
     table.add_row(
         "langflow",
         "RAG Flow",
-        "Planned",
+        "[yellow][~] Planned[/yellow]",
         "Langflow vector store retriever pipelines & multi-tenant chains"
     )
     table.add_row(
         "flowise",
         "Canvas / Flow",
-        "Planned",
+        "[yellow][~] Planned[/yellow]",
         "Flowise AI conversational retrieval chains & document stores"
     )
 
@@ -181,7 +208,7 @@ try:
     import typer
     app = typer.Typer(
         name="firedamp",
-        help="Canaries for your RAG Stack: Automated cross-tenant data leakage detection.",
+        help="Canaries for your RAG Stack: Atmospheric safety testing & cross-tenant leak detection.",
         add_completion=False,
     )
 
@@ -215,9 +242,9 @@ try:
 
     @app.command("version")
     def version_cmd():
-        """Show Firedamp version banner."""
+        """Show Firedamp atmospheric sensor version banner."""
         reporter.print_banner()
-        console.print("[bold]Firedamp[/bold] version 0.1.0\n")
+        console.print("[bold green][+][/bold green] Firedamp Atmospheric Sensor v0.1.0 online\n")
 
     def main():
         app()
@@ -264,7 +291,7 @@ except ImportError:
             list_targets_flow()
         elif args.subcommand == "version":
             reporter.print_banner()
-            console.print("[bold]Firedamp[/bold] version 0.1.0\n")
+            console.print("[bold green][+][/bold green] Firedamp Atmospheric Sensor v0.1.0 online\n")
         else:
             parser.print_help()
 

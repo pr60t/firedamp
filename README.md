@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="firedamp_banner.svg" alt="Firedamp Banner" width="100%" />
+</p>
+
 # Firedamp 🪨🐤
 
 > **Canaries for your RAG Stack.**  
@@ -175,6 +179,8 @@ firedamp/
 ├── tests/
 │   └── test_canary.py   # Unit & integration assertions
 ├── cli.py               # Typer / Rich CLI entry point
+├── firedamp_banner.svg  # Project banner asset
+├── firedamp_logo.svg    # Project logo asset
 ├── todo.md             # Development roadmap & milestone tracker
 └── README.md            # Project documentation & reference
 ```
