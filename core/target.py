@@ -328,7 +328,8 @@ class OpenWebUIContainerManager(BaseTargetManager):
         version: str = "latest",
         timeout: int = 90,
         env_vars: Optional[Dict[str, str]] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        cpu_only: bool = False,
     ) -> TargetEnvironment:
         """
         Provisions and launches an Open WebUI container using the Docker SDK.
@@ -338,6 +339,8 @@ class OpenWebUIContainerManager(BaseTargetManager):
             timeout: Maximum seconds to wait for HTTP readiness.
             env_vars: Additional environment variables for the container.
             port: Specific host port to bind. If None, an ephemeral port is selected.
+            cpu_only: If True, disable Ollama API and use built-in CPU pipelines
+                      so the container runs without GPU or a local Ollama instance.
 
         Returns:
             TargetEnvironment: Configured target connection environment.
@@ -356,6 +359,16 @@ class OpenWebUIContainerManager(BaseTargetManager):
             "ENV": "test",
             "ENABLE_SIGNUP": "True",
         }
+
+        if cpu_only:
+            # Disable Ollama so Open WebUI doesn't need a running LLM backend.
+            # RAG indexing uses the built-in SentenceTransformer (CPU) by default.
+            container_env.update({
+                "ENABLE_OLLAMA_API": "False",
+                "OLLAMA_BASE_URL": "",
+                "RAG_EMBEDDING_ENGINE": "",  # empty = default CPU SentenceTransformer
+            })
+
         if env_vars:
             container_env.update(env_vars)
 

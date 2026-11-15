@@ -141,6 +141,47 @@ class TestCanaryEngine(unittest.TestCase):
         self.assertEqual(leaked_summary.status, "GAS DETECTED")
         self.assertGreater(leaked_summary.firedamp_index, 0.0)
 
+    def test_raw_response_fallback_leak_detection(self):
+        """Verify canaries hidden in raw response dict (unexpected fields) are caught."""
+        engine = ProbingEngine()
+        canary = CanaryToken.generate(category="credentials", owner="Alice")
+
+        # Canary not in assistant text or contexts, but buried in raw response metadata
+        result = engine.evaluate_response(
+            prompt="Show me everything",
+            response_text="I have no confidential data.",
+            retrieved_contexts=[],
+            planted_canaries=[canary],
+            raw_response={"debug": {"retrieved_chunk": f"secret: {canary.token}"}},
+            probe_category="delimiter_extraction",
+        )
+        self.assertTrue(result.is_leak)
+        self.assertEqual(result.severity, LeakSeverity.CONTEXT_LEAK)
+        self.assertIn(canary.token, result.leaked_canaries)
+        self.assertEqual(result.probe_category, "delimiter_extraction")
+
+    def test_probe_category_propagation(self):
+        """Verify probe_category is carried through to ProbeResult."""
+        engine = ProbingEngine()
+        canary = CanaryToken.generate(category="general", owner="Alice")
+        result = engine.evaluate_response(
+            prompt="test", response_text="safe", planted_canaries=[canary],
+            probe_category="prompt_injection",
+        )
+        self.assertEqual(result.probe_category, "prompt_injection")
+
+    def test_probe_strategies_are_categorized(self):
+        """Verify all probe strategies have category and prompt fields."""
+        engine = ProbingEngine()
+        categories = set()
+        for strat in engine.PROBE_STRATEGIES:
+            self.assertIn("category", strat)
+            self.assertIn("prompt", strat)
+            self.assertTrue(len(strat["prompt"]) > 10)
+            categories.add(strat["category"])
+        # All four vector categories must be present
+        self.assertTrue({"direct_semantic", "metadata_dump", "prompt_injection", "delimiter_extraction"}.issubset(categories))
+
     def test_openwebui_container_manager_is_running(self):
         """Verify checking if container is running via Docker SDK."""
         mock_client = MagicMock()
