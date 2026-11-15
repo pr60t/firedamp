@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "firedamp"
+version = "0.1.0"
+description = "Canaries for your RAG stack: Automated cross-tenant data leakage detection and atmospheric isolation auditing."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Firedamp Contributors"}
+]
+keywords = [
+    "rag",
+    "canary",
+    "security",
+    "retrieval-augmented-generation",
+    "isolation",
+    "leak-detection",
+    "openwebui",
+    "llm",
+    "mine-safety",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+    "docker>=6.1.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+firedamp = "cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/firedamp"
+Documentation = "https://github.com/your-org/firedamp#readme"
+Repository = "https://github.com/your-org/firedamp.git"
+
+[tool.setuptools]
+packages = ["core", "adapters"]
+py-modules = ["cli"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+

@@ -2,9 +2,6 @@
   <img src="firedamp_banner.svg" alt="Firedamp Banner" width="100%" />
 </p>
 
-# Firedamp 🪨🐤
-
-> **Canaries for your RAG Stack.**  
 > Automated cross-tenant data leakage detection, isolation auditing, and vulnerability probing for Retrieval-Augmented Generation (RAG) platforms.
 
 ---
@@ -179,6 +176,9 @@ firedamp/
 ├── tests/
 │   └── test_canary.py   # Unit & integration assertions
 ├── cli.py               # Typer / Rich CLI entry point
+├── pyproject.toml       # PEP 621 package & dependency metadata
+├── requirements.txt     # Production dependencies
+├── requirements-dev.txt # Development & test dependencies
 ├── firedamp_banner.svg  # Project banner asset
 ├── firedamp_logo.svg    # Project logo asset
 ├── todo.md             # Development roadmap & milestone tracker
