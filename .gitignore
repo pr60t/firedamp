@@ -41,3 +41,6 @@ htmlcov/
 *.swo
 *~
 .bird.png.un~
+
+# Graphify knowledge graph outputs and build caches
+graphify-out/

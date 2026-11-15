@@ -1,0 +1,75 @@
+# 🛠️ Real-World Use Cases & Recipes
+
+Here are the most common ways to deploy and use Firedamp in practice.
+
+---
+
+### Recipe 1: Pre-Release Version Testing (Ephemeral Docker)
+**Scenario:** You want to test whether a new version of Open WebUI (e.g. `main` or `v0.5.0`) has cross-tenant isolation vulnerabilities before deploying it to your team.
+
+```bash
+firedamp scan \
+  --target openwebui \
+  --version main \
+  --cpu-only \
+  --canaries 6
+```
+
+- **How it works:** Firedamp automatically pulls the image, starts an isolated test container on an ephemeral port, seeds Alice's private documents, tests Bob's access, reports the score, and tears down the container and its volumes cleanly.
+
+---
+
+### Recipe 2: Auditing an Existing Staging/Local Server
+**Scenario:** You have an active Open WebUI instance already running at `http://localhost:8080` (or `http://rag-staging.internal:8080`) and want to check if existing tenant permissions work as expected.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --canaries 4 \
+  --output security-audit.md \
+  --format markdown
+```
+
+- **Safety guarantee:** All test documents, knowledge collections, and sessions created during the scan are removed immediately upon completion via the adapter's automated `cleanup()`.
+
+---
+
+### Recipe 3: Continuous Integration in GitHub Actions (DevSecOps)
+**Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
+
+Create `.github/workflows/audit.yml` in your repo:
+
+```yaml
+name: RAG Cross-Tenant Isolation Audit
+
+on: [push, pull_request]
+
+jobs:
+  isolation-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+
+      # Generate Markdown PR summary
+      - name: Run Firedamp Audit
+        run: |
+          firedamp scan --target openwebui --cpu-only --output report.md --format markdown --dry-run
+          cat report.md >> $GITHUB_STEP_SUMMARY
+
+      # Break build and export SARIF if gas is detected
+      - name: Enforce Zero-Leak Policy
+        if: always()
+        run: |
+          firedamp scan --target openwebui --cpu-only --output results.sarif --format sarif --fail-on-leak --dry-run
+
+      - name: Upload to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+```
+

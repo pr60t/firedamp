@@ -3,6 +3,8 @@
 </p>
 
 > Automated cross-tenant data leakage detection, isolation auditing, and vulnerability probing for Retrieval-Augmented Generation (RAG) platforms.
+>
+> 📖 **[Read the Documentation Wiki](wiki/Home.md)** | **[Quickstart](wiki/Quickstart.md)** | **[CLI Reference](wiki/CLI-Reference.md)**
 
 ---
 
@@ -13,21 +15,16 @@
                       \  ^  /      there is gas in the shaft."
                        |||||
                      /       \
-                    |         |
                     |  CLEAR  |   --> No cross-tenant RAG leaks detected.
                     \_________/
 ```
 
-## The "Firedamp" Metaphor
+Named after **firedamp**—the odorless, explosive mine gas detected with caged canaries—**Firedamp** automatically catches cross-tenant data leakage in Retrieval-Augmented Generation (RAG) stacks before adversaries or auditors do.
 
-In underground coal mining, **firedamp** is the historical name for flammable, hazardous gases (primarily methane) that accumulate in mine workings. Colorless and odorless, firedamp could trigger catastrophic explosions without warning. Miners brought **canaries** in small cages down into the shafts; because of the bird's high metabolic rate and sensitivity to airborne toxins, any sign of distress in the canary served as an early warning for miners to evacuate immediately.
-
-In modern generative AI architectures, **Retrieval-Augmented Generation (RAG)** stacks connect vector databases, document knowledge stores, and LLMs across multi-user environments. When authorization controls, vector index partitioning, or access control lists (ACLs) fail, proprietary documents leak across tenant boundaries like invisible firedamp gas.
-
-**Firedamp** acts as the automated canary in your AI stack:
-1. It plants synthetic, high-entropy **canary tokens** inside decoy documents owned by an isolated persona (**Alice**).
-2. It sends probing retrieval queries from an unprivileged persona (**Bob**).
-3. If Alice's canary tokens appear in Bob's retrieval contexts or generated answers, **gas is detected** before an adversary or auditor finds it.
+### How It Works
+1. **Plant:** Injects verifiable, high-entropy **canary tokens** into private documents owned by **Alice**.
+2. **Probe:** Dispatches multi-vector exfiltration queries as an unauthorized user (**Bob**).
+3. **Detect:** Deterministically flags any tokens exposed in assistant answers, citations, or background context chunks.
 
 ---
 
@@ -182,6 +179,7 @@ firedamp/
 ├── firedamp_banner.svg  # Project banner asset
 ├── firedamp_logo.svg    # Project logo asset
 ├── todo.md             # Development roadmap & milestone tracker
+├── wiki/               # GitHub Wiki documentation & operational guides
 └── README.md            # Project documentation & reference
 ```
 
