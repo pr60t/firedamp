@@ -1,0 +1,52 @@
+name: Sync Documentation Wiki
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/sync-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-wiki:
+    name: Sync Wiki to GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Repository
+        uses: actions/checkout@v4
+
+      - name: Push to GitHub Wiki Repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WIKI_REPO="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
+          
+          echo "Cloning GitHub Wiki repository..."
+          if git clone "$WIKI_REPO" /tmp/wiki_repo; then
+            echo "Wiki cloned successfully. Syncing files from wiki/..."
+            
+            # Copy all files and assets from wiki/ into wiki_repo
+            cp -r wiki/* /tmp/wiki_repo/
+            
+            cd /tmp/wiki_repo
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
+            
+            # Check if there are changes to commit
+            if git diff-index --quiet HEAD --; then
+              echo "No changes detected. Wiki is already up to date."
+            else
+              git commit -m "docs(wiki): automated sync from main repository [skip ci]"
+              git push origin HEAD
+              echo "✅ GitHub Wiki successfully synchronized!"
+            fi
+          else
+            echo "::warning ::Could not clone wiki repository. Ensure the Wiki tab is initialized with at least one page on GitHub (https://github.com/${{ github.repository }}/wiki)."
+          fi
+
