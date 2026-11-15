@@ -65,11 +65,11 @@ class TargetAdapter(ABC):
         base_url: str,
         session: UserSession,
         prompt: str
-    ) -> Tuple[str, List[str]]:
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
         """
         Executes an exfiltration or probing query under the persona's credentials.
         Returns:
-            Tuple[str, List[str]]: (Generated response text, List of retrieved context chunks/citations)
+            Tuple[str, List[str], Dict[str, Any]]: (Generated response text, List of retrieved context chunks, Raw response dict)
         """
         pass
 

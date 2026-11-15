@@ -3,7 +3,10 @@ Unit and integration tests for Firedamp core engine, canary tokens, and leak det
 Supports both Pytest and Python standard unittest runners.
 """
 
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,8 +22,10 @@ from core.engine import (
     LeakSeverity,
 )
 from core.reporter import FiredampReporter, AuditSummary
-from core.target import OpenWebUIContainerManager
-from unittest.mock import MagicMock
+from core.target import OpenWebUIContainerManager, TargetEnvironment
+from adapters import TargetAdapter, UserSession, ADAPTER_REGISTRY, get_adapter
+from cli import run_scan_flow
+from unittest.mock import MagicMock, patch
 
 
 class TestCanaryEngine(unittest.TestCase):
@@ -270,6 +275,141 @@ class TestCanaryEngine(unittest.TestCase):
         self.assertEqual(len(sarif["runs"][0]["results"]), 1)
         self.assertEqual(sarif["runs"][0]["results"][0]["ruleId"], "FRDP001")
         self.assertEqual(sarif["runs"][0]["results"][0]["level"], "error")
+
+    @patch("cli.RemoteTargetManager")
+    @patch("cli.get_adapter")
+    def test_e2e_mocked_scan_flow_success(self, mock_get_adapter, mock_target_mgr_cls):
+        """Verify full run_scan_flow() pipeline from ingestion through probing and report export."""
+        mock_mgr = MagicMock()
+        mock_env = TargetEnvironment(
+            name="openwebui",
+            base_url="http://mock-target:8080",
+            managed_by_docker=False
+        )
+        mock_mgr.start.return_value = mock_env
+        mock_target_mgr_cls.return_value = mock_mgr
+
+        mock_adapter = MagicMock(spec=TargetAdapter)
+        mock_adapter.target_name = "openwebui"
+        alice_session = UserSession(username="alice_owner", role="owner", token="alice_token")
+        bob_session = UserSession(username="bob_attacker", role="attacker", token="bob_token")
+
+        def fake_auth(url, username, password, role="user"):
+            return alice_session if role == "owner" else bob_session
+
+        mock_adapter.authenticate_user.side_effect = fake_auth
+        planted_canary_tokens = []
+        def fake_ingest(url, session, doc):
+            for c in doc.canaries:
+                planted_canary_tokens.append(c.token)
+            return "kb-mock-123"
+
+        mock_adapter.ingest_document.side_effect = fake_ingest
+
+        def fake_query_rag(url, session, prompt, model=None):
+            if session.role == "owner":
+                token = planted_canary_tokens[0] if planted_canary_tokens else "CANARY-FRDP-NONE"
+                return f"Baseline verification: {token}", [token], {}
+            # Bob gets safe response (no leak)
+            return "I have no access to that data.", [], {}
+
+        mock_adapter.query_rag.side_effect = fake_query_rag
+        mock_get_adapter.return_value = mock_adapter
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            exit_code = run_scan_flow(
+                target="openwebui",
+                target_url="http://mock-target:8080",
+                canaries=2,
+                output=tmp_path,
+                format="json",
+                fail_on_leak=True,
+                dry_run=False,
+            )
+
+            self.assertEqual(exit_code, 0)
+            mock_adapter.authenticate_user.assert_any_call(
+                "http://mock-target:8080", username="alice_owner", password="AegisPassword!123", role="owner"
+            )
+            mock_adapter.authenticate_user.assert_any_call(
+                "http://mock-target:8080", username="bob_attacker", password="BobPassword!456", role="attacker"
+            )
+            self.assertEqual(mock_adapter.ingest_document.call_count, 2)
+            self.assertEqual(mock_adapter.query_rag.call_count, 3)  # 1 baseline + 2 Bob probes
+            mock_adapter.cleanup.assert_called_once_with("http://mock-target:8080", alice_session)
+
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                report_data = json.load(f)
+            self.assertEqual(report_data["status"], "CLEAR")
+            self.assertEqual(report_data["total_canaries_planted"], 2)
+            self.assertEqual(report_data["total_probes_dispatched"], 2)
+            self.assertEqual(report_data["firedamp_index"], 0.0)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    @patch("cli.RemoteTargetManager")
+    @patch("cli.get_adapter")
+    @patch("cli.reporter.log_alert")
+    def test_positive_baseline_failure_warning(self, mock_log_alert, mock_get_adapter, mock_target_mgr_cls):
+        """Verify that scan warns user when Alice cannot retrieve her own canaries (indexing failure)."""
+        mock_mgr = MagicMock()
+        mock_env = TargetEnvironment(name="openwebui", base_url="http://mock-target:8080", managed_by_docker=False)
+        mock_mgr.start.return_value = mock_env
+        mock_target_mgr_cls.return_value = mock_mgr
+
+        mock_adapter = MagicMock(spec=TargetAdapter)
+        mock_adapter.authenticate_user.return_value = UserSession(username="alice", role="owner")
+        mock_adapter.ingest_document.return_value = "kb-1"
+
+        # Alice's baseline probe fails to retrieve any canary
+        mock_adapter.query_rag.return_value = ("Sorry, I have no records found.", [], {})
+        mock_get_adapter.return_value = mock_adapter
+
+        exit_code = run_scan_flow(
+            target="openwebui",
+            target_url="http://mock-target:8080",
+            canaries=2,
+            dry_run=False,
+        )
+
+        self.assertEqual(exit_code, 0)
+        alert_calls = [call.args[0] for call in mock_log_alert.call_args_list]
+        self.assertTrue(any("Baseline warning: Alice could not retrieve her own canaries" in msg for msg in alert_calls))
+
+    def test_registered_adapters_satisfy_contract(self):
+        """Verify all registered adapters satisfy the TargetAdapter abstract protocol."""
+        from adapters.openwebui import OpenWebUIAdapter
+        self.assertIn("openwebui", ADAPTER_REGISTRY)
+
+        required_methods = [
+            "authenticate_user",
+            "ingest_document",
+            "query_rag",
+            "cleanup",
+        ]
+
+        for adapter_name, adapter_cls in ADAPTER_REGISTRY.items():
+            self.assertTrue(
+                issubclass(adapter_cls, TargetAdapter),
+                f"Adapter '{adapter_name}' must inherit from TargetAdapter"
+            )
+            instance = adapter_cls()
+            self.assertTrue(isinstance(instance.target_name, str))
+            self.assertTrue(len(instance.target_name) > 0)
+            for method_name in required_methods:
+                method = getattr(instance, method_name, None)
+                self.assertIsNotNone(
+                    method,
+                    f"Adapter '{adapter_name}' missing required method '{method_name}'"
+                )
+                self.assertTrue(
+                    callable(method),
+                    f"'{method_name}' on adapter '{adapter_name}' must be callable"
+                )
 
 
 if __name__ == "__main__":
