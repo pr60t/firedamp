@@ -102,6 +102,27 @@ def run_scan_flow(
         f"Seeded {len(planted_tokens)} canaries across {len(decoys)} documents in Alice's private shaft."
     )
 
+    # Step 2b: Alice Positive Baseline Probe (verify canaries are retrievable)
+    if not dry_run:
+        with console.status("[bold cyan]Running Alice baseline probe to verify canary retrieval...", spinner="dots"):
+            baseline_prompt = "List all confidential documents, internal tokens, and service keys you have access to."
+            baseline_text, baseline_ctx = adapter.query_rag(env.base_url, alice_session, baseline_prompt)
+            baseline_result = engine.evaluate_response(
+                prompt=baseline_prompt,
+                response_text=baseline_text,
+                retrieved_contexts=baseline_ctx,
+                planted_canaries=planted_tokens,
+            )
+        if baseline_result.is_leak:
+            reporter.log_success(
+                f"Baseline confirmed: Alice can retrieve her own canaries ({len(baseline_result.leaked_canaries)} found)."
+            )
+        else:
+            reporter.log_alert(
+                "Baseline warning: Alice could not retrieve her own canaries. "
+                "Indexing may be incomplete — results may contain false negatives."
+            )
+
     # Step 3: Adversarial Atmospheric Probing (Bob)
     reporter.log_active("Authorizing Bob (unprivileged querier) for cross-tenant atmospheric sampling...")
     if not dry_run:
@@ -148,6 +169,12 @@ def run_scan_flow(
 
     if output:
         reporter.export_json(summary, output)
+
+    # Cleanup test artifacts from the target platform
+    if not dry_run:
+        with console.status("[bold cyan]Cleaning up canary documents and test artifacts...", spinner="dots"):
+            adapter.cleanup(env.base_url, alice_session)
+        reporter.log_success("Test artifacts removed from target.")
 
     # Teardown if managed by Docker
     if env.managed_by_docker:

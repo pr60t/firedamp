@@ -1,15 +1,27 @@
 """
 Open WebUI Target Adapter.
 Simulates multi-tenant user personas (Alice & Bob) against Open WebUI REST APIs.
+
+API surface used:
+  POST /api/v1/auths/signup, /signin    — user auth
+  POST /api/v1/files/                   — multipart file upload
+  POST /api/v1/knowledge/create         — create knowledge collection
+  POST /api/v1/knowledge/{id}/file/add  — link file to collection
+  GET  /api/v1/files/{id}               — poll file processing status
+  POST /api/chat/completions            — RAG-aware chat (with files[])
+  DELETE /api/v1/files/{id}             — teardown
+  DELETE /api/v1/knowledge/{id}/delete  — teardown
 """
 
 from __future__ import annotations
 
+import io
 import json
 import logging
+import time
 import urllib.request
 import urllib.error
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from . import TargetAdapter, UserSession, register_adapter
 try:
@@ -23,24 +35,28 @@ logger = logging.getLogger("firedamp.adapters.openwebui")
 @register_adapter
 class OpenWebUIAdapter(TargetAdapter):
     """
-    Adapter implementation for Open WebUI (formerly Ollama WebUI).
-    Simulates:
-      - Alice: uploads confidential canary knowledge documents.
-      - Bob: unauthorized user dispatching semantic retrieval queries.
+    Open WebUI adapter using real REST endpoints.
+    Workflow: signup/signin → create knowledge collection → upload files →
+    link files to collection → wait for indexing → query via chat completions → cleanup.
     """
+
+    DEFAULT_MODEL = "llama3:8b"
 
     @property
     def target_name(self) -> str:
         return "openwebui"
 
-    def _http_request(
+    # ── HTTP helpers ──────────────────────────────────────────────────────
+
+    def _json_request(
         self,
         url: str,
         method: str = "GET",
         data: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None
+        headers: Optional[Dict[str, str]] = None,
+        timeout: int = 30,
     ) -> Dict[str, Any]:
-        """Utility method for JSON HTTP requests using standard library."""
+        """JSON request via stdlib. Returns parsed body or error dict."""
         req_headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if headers:
             req_headers.update(headers)
@@ -49,120 +65,262 @@ class OpenWebUIAdapter(TargetAdapter):
         req = urllib.request.Request(url, data=payload, headers=req_headers, method=method)
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 body = resp.read().decode("utf-8")
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8")
-            logger.debug(f"HTTP Error {e.code} on {url}: {err_body}")
+            logger.debug(f"HTTP {e.code} on {method} {url}: {err_body[:200]}")
             try:
-                return json.loads(err_body)
+                return {"error": json.loads(err_body), "code": e.code}
             except Exception:
-                return {"error": str(e), "code": e.code}
+                return {"error": err_body, "code": e.code}
         except Exception as e:
-            logger.warning(f"Connection failure to {url}: {e}")
+            logger.warning(f"Request failed {method} {url}: {e}")
             return {"error": str(e)}
+
+    def _multipart_upload(
+        self,
+        url: str,
+        filename: str,
+        content: bytes,
+        content_type: str = "text/markdown",
+        headers: Optional[Dict[str, str]] = None,
+        timeout: int = 30,
+    ) -> Dict[str, Any]:
+        """Multipart/form-data file upload via stdlib."""
+        boundary = "----FiredampBoundary9f3e"
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+        req_headers = {
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        }
+        if headers:
+            req_headers.update(headers)
+
+        req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8")
+            logger.debug(f"Upload HTTP {e.code}: {err_body[:200]}")
+            return {"error": err_body, "code": e.code}
+        except Exception as e:
+            logger.warning(f"Upload failed: {e}")
+            return {"error": str(e)}
+
+    # ── Auth ──────────────────────────────────────────────────────────────
 
     def authenticate_user(
         self,
         base_url: str,
         username: str,
         password: str,
-        role: str = "user"
+        role: str = "user",
     ) -> UserSession:
-        """
-        Attempts to register or sign in a test persona against Open WebUI auth API.
-        Falls back to test session tokens when testing offline or in mock environments.
-        """
-        endpoint = f"{base_url.rstrip('/')}/api/v1/auths"
+        """Sign up or sign in a test persona. Returns session with Bearer token."""
+        base = base_url.rstrip("/")
         email = f"{username.lower()}@firedamp-audit.internal"
 
         # Try signup first
-        signup_payload = {
-            "name": username.capitalize(),
-            "email": email,
-            "password": password
-        }
-        res = self._http_request(f"{endpoint}/signup", method="POST", data=signup_payload)
+        res = self._json_request(
+            f"{base}/api/v1/auths/signup",
+            method="POST",
+            data={"name": username.capitalize(), "email": email, "password": password},
+        )
         token = res.get("token")
 
-        # If already registered, attempt signin
+        # Fall back to signin
         if not token:
-            signin_payload = {"email": email, "password": password}
-            signin_res = self._http_request(f"{endpoint}/signin", method="POST", data=signin_payload)
-            token = signin_res.get("token")
+            res = self._json_request(
+                f"{base}/api/v1/auths/signin",
+                method="POST",
+                data={"email": email, "password": password},
+            )
+            token = res.get("token")
 
-        session_headers = {"Authorization": f"Bearer {token}"} if token else {}
+        if not token:
+            logger.warning(f"Auth for {username} returned no token: {res}")
+
+        auth_headers = {"Authorization": f"Bearer {token}"} if token else {}
         return UserSession(
             username=username,
             role=role,
             token=token,
-            headers=session_headers,
-            metadata={"email": email}
+            headers=auth_headers,
+            metadata={
+                "email": email,
+                "file_ids": [],          # track for cleanup
+                "knowledge_ids": [],     # track for cleanup
+                "chat_ids": [],          # track for cleanup
+            },
         )
+
+    # ── Ingestion: file upload → knowledge collection → link ─────────────
 
     def ingest_document(
         self,
         base_url: str,
         session: UserSession,
-        document: DecoyDocument
+        document: DecoyDocument,
     ) -> str:
         """
-        Ingests a decoy document containing canary tokens into Alice's knowledge base.
+        Full ingestion pipeline:
+        1. Upload document as file via multipart POST.
+        2. Create a private knowledge collection (one per document).
+        3. Link the uploaded file to the collection.
+        4. Wait for file processing/indexing to complete.
+        Returns the knowledge collection ID.
         """
-        endpoint = f"{base_url.rstrip('/')}/api/v1/knowledge"
-        payload = {
-            "name": document.title,
-            "description": f"Decoy document for {document.category} testing",
-            "content": document.content,
-            "metadata": document.metadata
-        }
+        base = base_url.rstrip("/")
 
-        res = self._http_request(
-            endpoint,
-            method="POST",
-            data=payload,
-            headers=session.headers
+        # 1. Upload file
+        filename = document.title.replace(" ", "_") + ".md"
+        file_content = document.content.encode("utf-8")
+
+        upload_res = self._multipart_upload(
+            f"{base}/api/v1/files/",
+            filename=filename,
+            content=file_content,
+            headers=session.headers,
         )
-        doc_id = res.get("id", f"mock-doc-{document.category}")
-        logger.info(f"Ingested canary document '{document.title}' for {session.username} (ID: {doc_id})")
-        return str(doc_id)
+        file_id = upload_res.get("id")
+        if not file_id:
+            logger.error(f"File upload failed for '{document.title}': {upload_res}")
+            return f"upload-failed-{document.category}"
+
+        session.metadata["file_ids"].append(file_id)
+        logger.info(f"Uploaded file '{filename}' → {file_id}")
+
+        # 2. Create knowledge collection
+        kb_res = self._json_request(
+            f"{base}/api/v1/knowledge/create",
+            method="POST",
+            data={
+                "name": f"firedamp-canary-{document.category}-{file_id[:8]}",
+                "description": f"Firedamp canary collection ({document.category})",
+                "data": {},
+                "access_control": None,
+            },
+            headers=session.headers,
+        )
+        kb_id = kb_res.get("id")
+        if not kb_id:
+            logger.error(f"Knowledge creation failed: {kb_res}")
+            return f"kb-failed-{document.category}"
+
+        session.metadata["knowledge_ids"].append(kb_id)
+        logger.info(f"Created knowledge collection → {kb_id}")
+
+        # 3. Wait for file processing before linking
+        self._wait_for_file_ready(base, session, file_id)
+
+        # 4. Link file to knowledge collection
+        link_res = self._json_request(
+            f"{base}/api/v1/knowledge/{kb_id}/file/add",
+            method="POST",
+            data={"file_id": file_id},
+            headers=session.headers,
+        )
+        if "error" in link_res and "code" in link_res:
+            logger.warning(f"File-to-knowledge link may have failed: {link_res}")
+        else:
+            logger.info(f"Linked file {file_id} → knowledge {kb_id}")
+
+        return kb_id
+
+    def _wait_for_file_ready(
+        self,
+        base_url: str,
+        session: UserSession,
+        file_id: str,
+        timeout: int = 60,
+        poll_interval: float = 2.0,
+    ) -> bool:
+        """Poll GET /api/v1/files/{id} until processing is done or timeout."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            res = self._json_request(
+                f"{base_url}/api/v1/files/{file_id}",
+                headers=session.headers,
+            )
+            # shortcut: Open WebUI marks status in meta.status or data.status
+            meta = res.get("meta", res.get("data", {}))
+            status = meta.get("status", "")
+            if isinstance(status, str) and status.lower() in ("completed", "ready", ""):
+                # Empty status on older versions means ready
+                return True
+            if isinstance(status, str) and status.lower() in ("error", "failed"):
+                logger.warning(f"File {file_id} processing failed: {status}")
+                return False
+            time.sleep(poll_interval)
+        logger.warning(f"File {file_id} processing timed out after {timeout}s")
+        return False
+
+    # ── RAG Query via chat completions ────────────────────────────────────
 
     def query_rag(
         self,
         base_url: str,
         session: UserSession,
-        prompt: str
+        prompt: str,
+        model: Optional[str] = None,
     ) -> Tuple[str, List[str]]:
         """
-        Sends an adversarial probe query as Bob to examine cross-tenant leakage.
-        Returns the generated answer string and any retrieved context snippets.
+        Query via POST /api/chat/completions with knowledge collection references.
+        Returns (assistant_text, list_of_retrieved_context_strings).
         """
-        endpoint = f"{base_url.rstrip('/')}/api/v1/chats"
-        payload = {
-            "prompt": prompt,
-            "stream": False,
-            "model": "default"
-        }
+        base = base_url.rstrip("/")
 
-        res = self._http_request(
-            endpoint,
+        # Build files[] from the session's knowledge collections
+        files_payload: List[Dict[str, str]] = []
+        for kb_id in session.metadata.get("knowledge_ids", []):
+            files_payload.append({"type": "collection", "id": kb_id})
+
+        payload: Dict[str, Any] = {
+            "model": model or self.DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        if files_payload:
+            payload["files"] = files_payload
+
+        res = self._json_request(
+            f"{base}/api/chat/completions",
             method="POST",
             data=payload,
-            headers=session.headers
+            headers=session.headers,
+            timeout=120,  # LLM generation can be slow
         )
 
-        # Parse assistant text and retrieval contexts/citations
-        assistant_response = ""
+        # Parse response — OpenAI-compatible format
+        assistant_text = ""
         retrieved_contexts: List[str] = []
 
-        if isinstance(res, dict):
-            assistant_response = (
-                res.get("response") or
-                res.get("content") or
+        choices = res.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            assistant_text = message.get("content", "")
+            # Some Open WebUI versions attach sources/citations
+            sources = message.get("sources") or message.get("citations") or []
+            for src in sources:
+                if isinstance(src, dict):
+                    retrieved_contexts.append(src.get("content", "") or src.get("text", ""))
+                elif isinstance(src, str):
+                    retrieved_contexts.append(src)
+        else:
+            # Fallback for non-standard response shapes
+            assistant_text = (
+                res.get("response", "") or
+                res.get("content", "") or
                 res.get("message", {}).get("content", "")
             )
-            # Inspect background sources/citations returned with the chat response
             sources = res.get("sources") or res.get("citations") or []
             for src in sources:
                 if isinstance(src, dict):
@@ -170,8 +328,28 @@ class OpenWebUIAdapter(TargetAdapter):
                 elif isinstance(src, str):
                     retrieved_contexts.append(src)
 
-        return assistant_response, retrieved_contexts
+        return assistant_text, retrieved_contexts
+
+    # ── Cleanup ───────────────────────────────────────────────────────────
 
     def cleanup(self, base_url: str, session: UserSession) -> None:
-        """Cleans up created test collections and chat histories."""
-        logger.info(f"Cleaned up session resources for {session.username}")
+        """Delete all files, knowledge collections, and chats created during the audit."""
+        base = base_url.rstrip("/")
+
+        for kb_id in session.metadata.get("knowledge_ids", []):
+            self._json_request(
+                f"{base}/api/v1/knowledge/{kb_id}/delete",
+                method="DELETE",
+                headers=session.headers,
+            )
+            logger.info(f"Deleted knowledge collection {kb_id}")
+
+        for file_id in session.metadata.get("file_ids", []):
+            self._json_request(
+                f"{base}/api/v1/files/{file_id}",
+                method="DELETE",
+                headers=session.headers,
+            )
+            logger.info(f"Deleted file {file_id}")
+
+        logger.info(f"Cleanup complete for {session.username}")
