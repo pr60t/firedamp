@@ -4,7 +4,7 @@
 
 > Automated cross-tenant data leakage detection, isolation auditing, and vulnerability probing for Retrieval-Augmented Generation (RAG) platforms.
 >
-> 📖 **[Read the Documentation Wiki](wiki/Home.md)** | **[Quickstart](wiki/Quickstart.md)** | **[CLI Reference](wiki/CLI-Reference.md)**
+> 📖 **[Read the Documentation Wiki](https://github.com/pr60t/firedamp/wiki)** | **[Quickstart](https://github.com/pr60t/firedamp/wiki/Quickstart)** | **[CLI Reference](https://github.com/pr60t/firedamp/wiki/CLI-Reference)**
 
 ---
 
