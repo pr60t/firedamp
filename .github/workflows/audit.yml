@@ -1,0 +1,66 @@
+name: Firedamp Atmospheric RAG Isolation Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  rag-isolation-audit:
+    name: Cross-Tenant Leak Audit (Open WebUI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Firedamp & Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run Firedamp Isolation Scan (Markdown & Step Summary)
+        id: scan-markdown
+        run: |
+          python cli.py scan \
+            --target openwebui \
+            --cpu-only \
+            --output firedamp-report.md \
+            --format markdown \
+            --canaries 4 \
+            --dry-run
+          cat firedamp-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Run Security Audit with SARIF Output
+        id: scan-sarif
+        if: always()
+        run: |
+          python cli.py scan \
+            --target openwebui \
+            --cpu-only \
+            --output firedamp-results.sarif \
+            --format sarif \
+            --canaries 4 \
+            --fail-on-leak \
+            --dry-run
+
+      - name: Upload SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: firedamp-results.sarif
+          category: firedamp-rag-isolation
+

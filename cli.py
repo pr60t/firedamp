@@ -34,6 +34,7 @@ def run_scan_flow(
     version: str = "latest",
     canaries: int = 4,
     output: Optional[str] = None,
+    format: str = "json",
     fail_on_leak: bool = False,
     dry_run: bool = False,
     cpu_only: bool = False,
@@ -176,7 +177,13 @@ def run_scan_flow(
     reporter.render_summary(summary)
 
     if output:
-        reporter.export_json(summary, output)
+        actual_fmt = format
+        if format == "json":
+            if output.endswith(".md") or output.endswith(".markdown"):
+                actual_fmt = "markdown"
+            elif output.endswith(".sarif"):
+                actual_fmt = "sarif"
+        reporter.export(summary, output, format=actual_fmt)
 
     # Cleanup test artifacts from the target platform
     if not dry_run:
@@ -253,7 +260,8 @@ try:
         target_url: Optional[str] = typer.Option(None, "--target-url", "-u", help="URL of existing deployment."),
         version: str = typer.Option("latest", "--version", "-v", help="Docker container image tag."),
         canaries: int = typer.Option(4, "--canaries", "-n", help="Number of canary documents to plant."),
-        output: Optional[str] = typer.Option(None, "--output", "-o", help="Path to export JSON audit report."),
+        output: Optional[str] = typer.Option(None, "--output", "-o", help="Path to export audit report."),
+        format: str = typer.Option("json", "--format", "-f", help="Audit report format (json, markdown, sarif)."),
         fail_on_leak: bool = typer.Option(False, "--fail-on-leak", help="Exit code 1 if gas is detected."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
@@ -265,6 +273,7 @@ try:
             version=version,
             canaries=canaries,
             output=output,
+            format=format,
             fail_on_leak=fail_on_leak,
             dry_run=dry_run,
             cpu_only=cpu_only,
@@ -303,7 +312,8 @@ except ImportError:
         scan_parser.add_argument("--target-url", "-u", default=None, help="URL of existing deployment")
         scan_parser.add_argument("--version", "-v", default="latest", help="Docker image tag")
         scan_parser.add_argument("--canaries", "-n", type=int, default=4, help="Number of canaries to plant")
-        scan_parser.add_argument("--output", "-o", default=None, help="Path for JSON audit report")
+        scan_parser.add_argument("--output", "-o", default=None, help="Path for audit report")
+        scan_parser.add_argument("--format", "-f", default="json", choices=["json", "markdown", "sarif"], help="Audit report format")
         scan_parser.add_argument("--fail-on-leak", action="store_true", help="Exit code 1 if gas detected")
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
@@ -322,6 +332,7 @@ except ImportError:
                 version=args.version,
                 canaries=args.canaries,
                 output=args.output,
+                format=args.format,
                 fail_on_leak=args.fail_on_leak,
                 dry_run=args.dry_run,
                 cpu_only=args.cpu_only,

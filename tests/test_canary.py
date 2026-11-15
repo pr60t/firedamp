@@ -233,6 +233,44 @@ class TestCanaryEngine(unittest.TestCase):
         mock_container.stop.assert_called_with(timeout=5)
         mock_container.remove.assert_called_with(v=True, force=True)
 
+    def test_reporter_markdown_rendering(self):
+        """Verify Markdown PR-ready report generation for both clean and leaked audits."""
+        reporter = FiredampReporter()
+        engine = ProbingEngine()
+        canaries = [CanaryToken.generate(category="financial", owner="Alice")]
+
+        # Leaked summary
+        results = [
+            engine.evaluate_response("Query 1", f"Found {canaries[0].token}", [], canaries, probe_category="direct_semantic")
+        ]
+        summary = reporter.calculate_summary("openwebui", "http://localhost:8080", canaries, results)
+        md = reporter.render_markdown(summary)
+
+        self.assertIn("# 🚨 Firedamp Atmospheric Telemetry Report", md)
+        self.assertIn("Firedamp Index", md)
+        self.assertIn("Contaminated Airway Sample Logs", md)
+        self.assertIn("direct_semantic", md)
+        self.assertIn(canaries[0].token, md)
+
+    def test_reporter_sarif_rendering(self):
+        """Verify SARIF v2.1.0 output complies with GitHub Code Scanning schema requirements."""
+        reporter = FiredampReporter()
+        engine = ProbingEngine()
+        canaries = [CanaryToken.generate(category="credentials", owner="Alice")]
+
+        results = [
+            engine.evaluate_response("Query 1", f"Exposed: {canaries[0].token}", [], canaries, probe_category="direct_semantic")
+        ]
+        summary = reporter.calculate_summary("openwebui", "http://localhost:8080", canaries, results)
+        sarif = reporter.render_sarif(summary)
+
+        self.assertEqual(sarif["version"], "2.1.0")
+        self.assertIn("runs", sarif)
+        self.assertEqual(sarif["runs"][0]["tool"]["driver"]["name"], "Firedamp")
+        self.assertEqual(len(sarif["runs"][0]["results"]), 1)
+        self.assertEqual(sarif["runs"][0]["results"][0]["ruleId"], "FRDP001")
+        self.assertEqual(sarif["runs"][0]["results"][0]["level"], "error")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -226,4 +226,146 @@ class FiredampReporter:
         """Exports audit summary to a formatted JSON file for CI/CD pipelines."""
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(summary.to_dict(), f, indent=2)
-        self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold][/dim]")
+        self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold] (JSON)[/dim]")
+
+    def render_markdown(self, summary: AuditSummary) -> str:
+        """Generates a GitHub PR-ready Markdown security report."""
+        status_icon = "✅" if summary.status == "CLEAR" else "🚨"
+        lines = [
+            f"# {status_icon} Firedamp Atmospheric Telemetry Report",
+            "",
+            f"**Target System:** `{summary.target_name}` ({summary.target_url})  ",
+            f"**Audit Status:** **{summary.status}**  ",
+            f"**Firedamp Index:** `{summary.firedamp_index} / 100.0`  ",
+            f"**Timestamp:** `{summary.timestamp}`  ",
+            "",
+            "## Sensor Telemetry & Safety Margins",
+            "",
+            "| Sensor Channel | Parameter / Target | Reading | Status |",
+            "|:---|:---|:---|:---|",
+            f"| Airway Intake | Target Platform | `{summary.target_name}` | Connected |",
+            f"| Canary Cages Seeded | Alice (Data Owner) | {summary.total_canaries_planted} synthetic canaries | Seeded |",
+            f"| Exfiltration Probes | Bob (Attacker) | {summary.total_probes_dispatched} air samples | Evaluated |",
+            f"| Direct Generation Bleed | LLM Assistant Stream | {summary.direct_leaks} leak(s) | {'🚨 CRITICAL' if summary.direct_leaks > 0 else 'Clear'} |",
+            f"| Latent Context Bleed | Citations & Chunks | {summary.context_leaks} leak(s) | {'⚠️ ELEVATED' if summary.context_leaks > 0 else 'Clear'} |",
+            f"| **Firedamp Index** | Composite Risk | **{summary.firedamp_index} / 100.0** | **{'🚨 HAZARDOUS' if summary.firedamp_index > 0 else '✅ AIRWAY CLEAR'}** |",
+            "",
+        ]
+
+        leaked_results = [p for p in (summary.probe_results or []) if p.get("severity") != LeakSeverity.NONE]
+        if leaked_results:
+            lines.extend([
+                "## 🚨 Contaminated Airway Sample Logs",
+                "",
+                "| # | Breach Vector | Severity | Probe Prompt | Compromised Canary |",
+                "|:---|:---|:---|:---|:---|",
+            ])
+            for idx, item in enumerate(leaked_results, 1):
+                tokens = ", ".join(f"`{t}`" for t in item.get("leaked_canaries", [])) or "Token extracted"
+                category = item.get("probe_category", "unknown")
+                sev = item.get("severity", "").upper()
+                prompt = item.get("probe_prompt", "").replace("\n", " ")
+                if len(prompt) > 60:
+                    prompt = prompt[:57] + "..."
+                lines.append(f"| {idx} | `{category}` | **{sev}** | {prompt} | {tokens} |")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("*Report generated automatically by [Firedamp](https://github.com/firedamp/firedamp) — Canaries for your RAG stack.*")
+        return "\n".join(lines) + "\n"
+
+    def export_markdown(self, summary: AuditSummary, file_path: str) -> None:
+        """Exports audit summary as a GitHub-flavored Markdown file."""
+        content = self.render_markdown(summary)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold] (Markdown)[/dim]")
+
+    def render_sarif(self, summary: AuditSummary) -> Dict[str, Any]:
+        """Generates SARIF v2.1.0 output for GitHub Code Scanning."""
+        rules = [
+            {
+                "id": "FRDP001",
+                "name": "DirectAssistantLeak",
+                "shortDescription": {"text": "Canary token exposed in assistant text generation"},
+                "fullDescription": {"text": "A confidential canary token was leaked directly in the LLM assistant's text output to an unauthorized user."},
+                "defaultConfiguration": {"level": "error"},
+            },
+            {
+                "id": "FRDP002",
+                "name": "LatentContextLeak",
+                "shortDescription": {"text": "Canary token exposed in retrieval context or citation chunks"},
+                "fullDescription": {"text": "A confidential canary token was retrieved and included in context chunks or citations accessible to an unauthorized user."},
+                "defaultConfiguration": {"level": "warning"},
+            },
+        ]
+
+        results = []
+        for p in (summary.probe_results or []):
+            sev = p.get("severity", "")
+            if sev == LeakSeverity.NONE or sev == "none":
+                continue
+
+            rule_id = "FRDP001" if sev == LeakSeverity.DIRECT_LEAK or sev == "direct_leak" else "FRDP002"
+            level = "error" if rule_id == "FRDP001" else "warning"
+            category = p.get("probe_category", "general")
+            canaries = ", ".join(p.get("leaked_canaries", []))
+            prompt = p.get("probe_prompt", "")
+
+            results.append({
+                "ruleId": rule_id,
+                "level": level,
+                "message": {
+                    "text": f"Cross-tenant canary leak ({category}): '{prompt}' leaked token(s): {canaries}"
+                },
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": f"targets/{summary.target_name}",
+                                "uriBaseId": "%SRCROOT%"
+                            }
+                        }
+                    }
+                ],
+                "properties": {
+                    "probe_category": category,
+                    "target_url": summary.target_url,
+                    "leaked_tokens": p.get("leaked_canaries", []),
+                }
+            })
+
+        return {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "Firedamp",
+                            "semanticVersion": "0.1.0",
+                            "informationUri": "https://github.com/firedamp/firedamp",
+                            "rules": rules,
+                        }
+                    },
+                    "results": results,
+                }
+            ],
+        }
+
+    def export_sarif(self, summary: AuditSummary, file_path: str) -> None:
+        """Exports audit summary to a SARIF v2.1.0 file."""
+        sarif_data = self.render_sarif(summary)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(sarif_data, f, indent=2)
+        self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold] (SARIF)[/dim]")
+
+    def export(self, summary: AuditSummary, file_path: str, format: str = "json") -> None:
+        """Exports audit telemetry in the requested format (json, markdown, sarif)."""
+        fmt = format.lower().strip()
+        if fmt in ("md", "markdown"):
+            self.export_markdown(summary, file_path)
+        elif fmt == "sarif":
+            self.export_sarif(summary, file_path)
+        else:
+            self.export_json(summary, file_path)
