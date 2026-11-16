@@ -122,7 +122,7 @@ class FiredampReporter:
             panel_content = Text()
             panel_content.append("[+] AIRWAY SECURE // 0.0 ppm FIREDAMP\n", style="bold green")
             panel_content.append(f"Firedamp Index: {summary.firedamp_index} / 100.0 [NOMINAL]\n", style="bold white")
-            panel_content.append("All canary cages intact. Zero cross-tenant atmospheric bleed detected.", style="green")
+            panel_content.append("All canary cages intact. No leaks detected in tested channels.", style="green")
 
             status_panel = Panel(
                 panel_content,

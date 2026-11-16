@@ -6,6 +6,12 @@ Get Firedamp installed and run your first isolation audit in less than two minut
 
 ### Step 1: Install Firedamp
 
+#### Option A: One-Line Install Script (Fastest)
+```bash
+curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
+```
+
+#### Option B: Manual Setup from Source
 ```bash
 # 1. Clone the repository
 git clone https://github.com/pr60t/firedamp.git
@@ -27,7 +33,7 @@ firedamp version
 ---
 
 ### Step 2: Run a Simulation Scan (No Setup Needed)
-To see the terminal telemetry report and simulated canary detection without needing Docker:
+To see the terminal telemetry report and simulated canary detection without needing Docker or network:
 
 ```bash
 firedamp scan --dry-run
@@ -35,12 +41,14 @@ firedamp scan --dry-run
 
 ---
 
-### Step 3: Run an Audit Against a Live Open WebUI Instance
+### Step 3: Run an Audit Against a Local Open WebUI Instance
 If you have Open WebUI running locally (e.g., at `http://localhost:8080`):
 
 ```bash
 firedamp scan --target-url http://localhost:8080
 ```
+
+> ⚠️ **Permission Notice:** Only run Firedamp against systems you own or have explicit written permission to test. Use disposable local/dev instances.
 
 **What happens behind the scenes:**
 1. Firedamp automatically creates a test data owner (**Alice**) and an unprivileged attacker (**Bob**).
@@ -48,5 +56,5 @@ firedamp scan --target-url http://localhost:8080
 3. Verifies Alice can retrieve her own canaries (positive baseline check).
 4. Fires adversarial retrieval queries as Bob.
 5. Displays the atmospheric report card.
-6. Automatically cleans up all test documents, knowledge collections, and sessions.
+6. Automatically removes all test files, knowledge collections, and chats it creates (note: the test user accounts remain in the database).
 

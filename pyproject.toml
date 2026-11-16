@@ -55,9 +55,9 @@ dev = [
 firedamp = "cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/firedamp"
-Documentation = "https://github.com/your-org/firedamp#readme"
-Repository = "https://github.com/your-org/firedamp.git"
+Homepage = "https://github.com/pr60t/firedamp"
+Documentation = "https://github.com/pr60t/firedamp#readme"
+Repository = "https://github.com/pr60t/firedamp.git"
 
 [tool.setuptools]
 packages = ["core", "adapters"]

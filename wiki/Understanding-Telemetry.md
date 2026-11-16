@@ -6,11 +6,16 @@ Firedamp frames RAG isolation reports using a mine-safety atmospheric telemetry 
 
 ### The Firedamp Index (0.0 – 100.0)
 
-The **Firedamp Index** represents the composite risk of unauthorized data exfiltration:
+The **Firedamp Index** represents the composite risk score of unauthorized data exfiltration. It is calculated strictly from three measurable metrics:
+1. **Probe Ratio:** The fraction of exfiltration queries that returned private data.
+2. **Canary Penetration:** The percentage of planted canary documents compromised.
+3. **Severity Weighting:** Direct generation leaks (higher penalty) versus background context/citation leaks.
+
+> 🚨 **Hard Fail Policy:** Any canary leak detected is a hard failure (`GAS DETECTED`). A score of `0.0` (`CLEAR`) means no leaks were found in the tested channels, not that absolute isolation is mathematically proven.
 
 | Score Range | Status | Meaning | Action Required |
 | :---: | :---: | :--- | :--- |
-| **0.0** | `CLEAR` | **Airway Safe:** Zero canaries retrieved across all probes. Complete multi-tenant isolation. | None. Target passed audit. |
+| **0.0** | `CLEAR` | **Airway Safe:** No canaries detected in tested channels. | None. Target passed audit for tested vectors. |
 | **0.1 – 40.0** | `GAS DETECTED` | **Elevated Hazard:** Latent canary leaked in chunk metadata or citation sources. | Review citation ACLs & metadata filtering. |
 | **40.1 – 100.0** | `CRITICAL HAZARD` | **Active Atmospheric Bleed:** Canaries printed directly in LLM responses or retrieved across multiple attack vectors. | Critical. Isolate multi-tenant collections immediately. |
 
@@ -67,7 +72,7 @@ When tenant isolation holds, Alice's baseline confirms her documents are indexed
 │                                                                                                            │
 │  [+] AIRWAY SECURE // 0.0 ppm FIREDAMP                                                                     │
 │  Firedamp Index: 0.0 / 100.0 [NOMINAL]                                                                     │
-│  All canary cages intact. Zero cross-tenant atmospheric bleed detected.                                    │
+│  All canary cages intact. No leaks detected in tested channels.                                            │
 │                                                                                                            │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                            Atmospheric Sensor Readings & Safety Margins                           

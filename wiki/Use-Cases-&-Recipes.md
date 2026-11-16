@@ -30,7 +30,7 @@ firedamp scan \
   --format markdown
 ```
 
-- **Safety guarantee:** All test documents, knowledge collections, and sessions created during the scan are removed immediately upon completion via the adapter's automated `cleanup()`.
+> ⚠️ **Permission & Data Notice:** Only test systems you own or have explicit written authorization to audit (disposable local/dev instances are strongly recommended). Cleanup removes the files, collections, and chats created during the audit; test user accounts (`alice_owner`, `bob_attacker`) remain in the target database.
 
 ---
 

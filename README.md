@@ -15,7 +15,7 @@
                       \  ^  /      there is gas in the shaft."
                        |||||
                      /       \
-                    |  CLEAR  |   --> No cross-tenant RAG leaks detected.
+                    |  CLEAR  |   --> No leaks detected in tested channels.
                     \_________/
 ```
 
@@ -30,10 +30,10 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
 
 ## Core Features
 
-- 🎯 **Target-Agnostic Adapter Pattern**: Decoupled driver architecture supporting popular platforms (Open WebUI, Dify, Flowise, Langflow, custom enterprise RAG endpoints).
-- 🔬 **Deterministic Zero-VRAM Assertions**: Verifies isolation boundaries using cryptographic token tracking and exact string/regex matches. **No expensive LLM judges or GPU VRAM required.**
+- 🎯 **Target-Agnostic Adapter Pattern**: Decoupled driver architecture. **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
+- 🔬 **Deterministic Zero-VRAM Assertions**: Checks whether canary tokens appear in responses or context chunks using cryptographic token tracking and string/regex matching without LLM judges or GPU VRAM. **A clean result means no leak was found in the tested channels, not that isolation is proven.**
 - 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration simulating data owners (Alice) and malicious or unauthorized queriers (Bob).
-- 📊 **Firedamp Index**: Quantitative 0–100 risk scoring factoring in leakage blast radius, context exposure vs. generated text bleed, and ACL coverage.
+- 📊 **Firedamp Index**: Quantitative 0–100 risk score factoring in probe ratio, canary penetration, and severity weighting. **Any leak is a hard fail.**
 - 🚨 **Instant Visual Telemetry**: High-contrast, rich terminal interface showing real-time probe progress, "Clear" safety badges, or "Gas Detected" incident summaries.
 - 🔄 **CI/CD Integration**: Zero-friction integration into automated testing pipelines with non-zero exit codes on isolation failures (`--fail-on-leak`).
 
@@ -90,33 +90,41 @@ Canaries are synthetically generated, high-entropy tokens with recognizable prea
 ```
 CANARY-FRDP-9c8e14d2-7b19-4f22-92a1-0e19a3bb9f01-7A2F
 ```
-These are embedded across realistic decoy documents (HR complaints, quarterly earnings, unreleased API keys, internal architecture notes) with realistic vector embeddings.
+These are embedded across realistic decoy documents (HR complaints, quarterly earnings, unreleased API keys, internal architecture notes). The target platform indexes them into its own vector space.
 
 ### 3. Deterministic Assertions (Zero GPU VRAM)
 Traditional LLM evaluation frameworks (e.g. LLM-as-a-judge) require spinning up separate 70B parameter models, generating high latency and massive VRAM footprints. Firedamp operates deterministically:
 - Inspects **both** raw retrieval context payloads (citations, chunk metadata) and final LLM responses.
 - Evaluates token matches via cryptographic substring matching.
-- Operates effortlessly against local Docker containers running on lightweight CPU-only mock embedding/chat endpoints.
+- Operates against local Docker containers running real CPU embeddings (Open WebUI's built-in SentenceTransformer) or connected to local Ollama instances (e.g. `llama3:8b`).
 
 ---
 
 ## Quickstart & CLI Usage
 
+### One-Line Install Script
+Install Firedamp directly with a single shell command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
+```
+
 ### Basic Scan (Ephemeral Docker Container)
 Spin up an Open WebUI container, execute an Alice-to-Bob isolation scan, and tear it down automatically:
 ```bash
-firedamp scan --target openwebui --version 0.9.5
+firedamp scan --target openwebui --version main --cpu-only
 ```
 
 ### Scan Existing Target Deployment
-Point Firedamp directly at a staging or production RAG endpoint:
+Scan an existing instance you own or have explicit written permission to test (disposable local/dev instances strongly recommended):
 ```bash
 firedamp scan \
   --target openwebui \
   --target-url http://localhost:8080 \
-  --canaries 10 \
+  --canaries 4 \
   --fail-on-leak
 ```
+
+> ⚠️ **Permission & Data Notice:** Only run Firedamp against systems you own or have explicit authorization to test. Cleanup removes the files, collections, and chats it creates; test user accounts (`alice_owner`, `bob_attacker`) remain in the target system.
 
 ### List Supported Adapters
 ```bash
@@ -139,7 +147,7 @@ firedamp scan --target openwebui --output audit-report.json --fail-on-leak
 ### Setup Virtual Environment
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/firedamp.git
+git clone https://github.com/pr60t/firedamp.git
 cd firedamp
 
 # Create and activate virtual environment
@@ -154,32 +162,38 @@ pip install -e ".[dev]"
 Execute the deterministic test suite:
 ```bash
 pytest -v
+# or using standard library unittest:
+python3 -m unittest discover tests/ -v
 ```
 
 ---
 
 ## Project Structure
 
-```
-firedamp/
-├── core/
-│   ├── __init__.py      # Core module exports & versioning
-│   ├── engine.py        # Canary generation & leak detection engine
-│   ├── target.py        # Docker target orchestration & lifecycle
-│   └── reporter.py      # Rich terminal UI & Firedamp Index computation
-├── adapters/
+```text
+.
+├── core/                # Canary engine, reporter, and target managers
+│   ├── __init__.py
+│   ├── engine.py        # Canary generation & deterministic leak detection
+│   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
+│   └── target.py        # Docker SDK target orchestration & lifecycle
+├── adapters/            # Target platform drivers
 │   ├── __init__.py      # Base TargetAdapter abstract protocol
-│   └── openwebui.py     # Open WebUI API driver (Alice/Bob simulation)
+│   └── openwebui.py     # Open WebUI REST API driver
 ├── tests/
-│   └── test_canary.py   # Unit & integration assertions
-├── cli.py               # Typer / Rich CLI entry point
-├── pyproject.toml       # PEP 621 package & dependency metadata
+│   └── test_canary.py   # Unit, E2E mocked, and adapter contract tests
+├── assets/              # Rendered terminal report vector SVGs
+├── wiki/                # Documentation wiki pages & guides
+├── .agents/             # Agent rules and skills
+├── .github/             # GitHub Actions CI workflows
+├── cli.py               # Typer / argparse CLI entrypoint
+├── install.sh           # Automated installer script
+├── pyproject.toml       # PEP 621 package metadata & entrypoints
 ├── requirements.txt     # Production dependencies
 ├── requirements-dev.txt # Development & test dependencies
 ├── firedamp_banner.svg  # Project banner asset
 ├── firedamp_logo.svg    # Project logo asset
-├── todo.md             # Development roadmap & milestone tracker
-├── wiki/               # GitHub Wiki documentation & operational guides
+├── LICENSE              # MIT license
 └── README.md            # Project documentation & reference
 ```
 

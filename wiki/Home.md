@@ -27,7 +27,14 @@ In modern multi-tenant AI platforms (like Open WebUI), proprietary documents oft
 
 ---
 
-### ⚡ One-Liner Quick Test
+### ⚡ Quick Install
+Install the Firedamp CLI with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
+```
+
+### 🧪 One-Liner Quick Test
 Don't have Docker running? Test the full pipeline instantly in simulation mode:
 
 ```bash
