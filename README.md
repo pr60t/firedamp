@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/pr60t/firedamp/wiki">📖 Documentation Wiki</a> •
-  <a href="https://github.com/pr60t/firedamp/wiki/Quickstart">⚡ Quickstart</a> •
+  <a href="#quickstart">⚡ Quickstart</a> •
   <a href="https://github.com/pr60t/firedamp/wiki/CVE-Regression-Engine">🛡️ CVE Engine</a> •
   <a href="https://github.com/pr60t/firedamp/wiki/CLI-Reference">💻 CLI Reference</a>
 </p>
@@ -100,6 +100,7 @@ Firedamp tests authorization boundaries across 6 distinct transmission channels:
 
 ---
 
+<a id="quickstart"></a>
 ## Quickstart
 
 ### ⚡ One-Line Install Script
