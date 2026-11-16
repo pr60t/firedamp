@@ -428,6 +428,29 @@ class FiredampReporter:
             json.dump(sarif_data, f, indent=2)
         self.console.print(f"[dim][+] Telemetry exported to [bold]{file_path}[/bold] (SARIF)[/dim]")
 
+    def render_policy_result(self, policy_result: Any) -> None:
+        """Renders declarative security policy evaluation results."""
+        if getattr(policy_result, "passed", True):
+            panel = Panel(
+                f"[bold green][+] SECURITY POLICY ENFORCED[/bold green]\n"
+                f"Policy: [bold]{policy_result.policy_name}[/bold]\n"
+                f"Status: [green]PASSED[/green] (0 violations detected)",
+                border_style="green",
+                title="🛡️ Policy-as-Code Evaluation",
+            )
+        else:
+            violations_text = "\n".join([f"  • [bold red]{v}[/bold red]" for v in policy_result.violations])
+            panel = Panel(
+                f"[bold red][🚨] SECURITY POLICY VIOLATION[/bold red]\n"
+                f"Policy: [bold]{policy_result.policy_name}[/bold]\n"
+                f"Status: [red]FAILED[/red] ({len(policy_result.violations)} policy breach(es)):\n\n"
+                f"{violations_text}",
+                border_style="red",
+                title="🛡️ Policy-as-Code Evaluation",
+            )
+        self.console.print("\n", panel)
+
+
     def export(self, summary: AuditSummary, file_path: str, format: str = "json") -> None:
         """Exports audit telemetry in the requested format (json, markdown, sarif)."""
         fmt = format.lower().strip()

@@ -1,0 +1,109 @@
+name: "Firedamp RAG Isolation & Authorization Audit"
+description: "Zero-VRAM automated cross-tenant data leakage detection, CVE regression, and policy enforcement gate for RAG platforms."
+author: "Firedamp Security Team"
+
+branding:
+  icon: "shield"
+  color: "yellow"
+
+inputs:
+  target-url:
+    description: "URL of the target RAG deployment"
+    required: false
+    default: "http://localhost:8080"
+  target:
+    description: "Target platform adapter name (e.g. openwebui)"
+    required: false
+    default: "openwebui"
+  suite:
+    description: "Audit suite to execute: default, cve-regression, auth-matrix, lifecycle, write-poisoning, agent-memory, or all"
+    required: false
+    default: "all"
+  scenario:
+    description: "Targeted scenario vector (lifecycle, write-poisoning, agent-memory)"
+    required: false
+    default: ""
+  policy:
+    description: "Path to declarative YAML policy file (e.g. policies/default.yaml)"
+    required: false
+    default: ""
+  vector-db:
+    description: "Target vector database backend (chroma, milvus, qdrant)"
+    required: false
+    default: "chroma"
+  multitenancy:
+    description: "Multitenancy mode (shared, isolated)"
+    required: false
+    default: "shared"
+  fail-on-leak:
+    description: "Halt with non-zero exit code if policy violation or gas is detected"
+    required: false
+    default: "true"
+  output:
+    description: "File path to export audit report"
+    required: false
+    default: "results.sarif"
+  format:
+    description: "Report export format: json, markdown, or sarif"
+    required: false
+    default: "sarif"
+  dry-run:
+    description: "Run atmospheric simulation without connecting to real network endpoints"
+    required: false
+    default: "false"
+
+outputs:
+  firedamp-index:
+    description: "The composite Firedamp Index risk score (0.0 - 100.0)"
+    value: ${{ steps.run-scan.outputs.firedamp-index }}
+  sarif-path:
+    description: "Path to the generated SARIF report file"
+    value: ${{ steps.run-scan.outputs.sarif-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install Firedamp
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e "${{ github.action_path }}/../../.."
+
+    - name: Execute Firedamp Isolation Scan
+      id: run-scan
+      shell: bash
+      run: |
+        CMD="firedamp scan"
+        if [ -n "${{ inputs.target-url }}" ]; then
+          CMD="$CMD --target-url ${{ inputs.target-url }}"
+        fi
+        CMD="$CMD --target ${{ inputs.target }}"
+        CMD="$CMD --suite ${{ inputs.suite }}"
+        CMD="$CMD --vector-db ${{ inputs.vector-db }}"
+        CMD="$CMD --multitenancy ${{ inputs.multitenancy }}"
+
+        if [ -n "${{ inputs.scenario }}" ]; then
+          CMD="$CMD --scenario ${{ inputs.scenario }}"
+        fi
+        if [ -n "${{ inputs.policy }}" ]; then
+          CMD="$CMD --policy ${{ inputs.policy }}"
+        fi
+        if [ "${{ inputs.fail-on-leak }}" = "true" ]; then
+          CMD="$CMD --fail-on-leak"
+        fi
+        if [ "${{ inputs.dry-run }}" = "true" ]; then
+          CMD="$CMD --dry-run"
+        fi
+        if [ -n "${{ inputs.output }}" ]; then
+          CMD="$CMD --output ${{ inputs.output }} --format ${{ inputs.format }}"
+        fi
+
+        echo "Running: $CMD"
+        $CMD
+        echo "sarif-path=${{ inputs.output }}" >> $GITHUB_OUTPUT
+

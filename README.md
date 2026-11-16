@@ -48,7 +48,8 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
 - 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
 - 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
 - 📊 **Firedamp Index (0–100)**: Quantitative risk score derived strictly from probe ratio, canary penetration, and severity weighting. **Any canary leak is a hard fail.**
-- 🔄 **DevSecOps & CI/CD Gate**: Native non-zero exit codes on isolation failures (`--fail-on-leak`) with automated export to SARIF, Markdown, and JSON.
+- 📜 **Policy-as-Code & CI/CD Gate**: Declarative YAML security thresholds (`--policy policies/enterprise.yaml`) with native non-zero exit codes (`--fail-on-leak`), reusable GitHub Action, and SARIF export.
+- 🏆 **Version Ladder Benchmark**: 100% CVE detection rate and 0 false positives validated against 5 historical Open WebUI release milestones (`python3 tests/benchmark_ladder.py`).
 
 ---
 
@@ -209,6 +210,7 @@ pytest -v
 ├── core/                # Canary generation, reporter & target lifecycle
 │   ├── engine.py        # Cryptographic canary engine & zero-VRAM matcher
 │   ├── matrix.py        # RAG Autorize API authorization replay engine
+│   ├── policy.py        # Declarative Policy-as-Code evaluator
 │   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
 │   └── target.py        # Docker SDK target orchestration & lifecycle
 ├── adapters/            # Target platform drivers
@@ -216,12 +218,14 @@ pytest -v
 │   └── openwebui/       # Modular Open WebUI driver (auth, ingest, query, lifecycle)
 ├── probes/              # Decoupled behavioral regression suites
 │   ├── schemas/         # 8-Pillar BugClass & ProbeChannel taxonomies
-│   ├── scenarios/       # Lifecycle (Pillar 4) & write-poisoning (Pillar 5) scenarios
+│   ├── scenarios/       # Lifecycle (Pillar 4), write-poisoning (5), memory (6)
 │   ├── cves/            # Tier-1 CVE fixtures (CVE-2026-44560, 45398, 28788, 54019)
 │   │   ├── cve_catalog.json # Machine-readable 21-CVE database
 │   │   └── CVE_CATALOG.md   # Attack strategy reference manual
 │   └── cve_registry.py  # Catalog loader and query engine
-├── tests/               # Test suites (unit, mock E2E, adapter contracts, CVE probes)
+├── policies/            # Declarative YAML security policies (default, enterprise)
+├── .github/actions/     # Reusable Firedamp CI/CD GitHub Action
+├── tests/               # Test suites & version ladder benchmark
 ├── assets/              # Rendered terminal report vector SVGs
 ├── wiki/                # Documentation wiki pages & guides
 ├── cli.py               # Typer / argparse CLI entrypoint

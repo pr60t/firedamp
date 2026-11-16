@@ -115,7 +115,20 @@ firedamp scan \
 
 ---
 
-### Recipe 9: Continuous Integration in GitHub Actions (DevSecOps)
+### Recipe 9: Policy-as-Code Enforcement
+**Scenario:** Enforce customized organizational risk tolerance (e.g. failing on direct leaks, allowing bounded index thresholds on staging, or whitelisting specific test channels) via declarative YAML.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --policy ./policies/enterprise.yaml \
+  --suite all \
+  --fail-on-leak
+```
+
+---
+
+### Recipe 10: Continuous Integration in GitHub Actions (DevSecOps)
 **Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
 
 Create `.github/workflows/audit.yml` in your repo:

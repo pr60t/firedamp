@@ -1,0 +1,23 @@
+# Firedamp Enterprise Security Policy
+# Policy suitable for staging/pre-production pipelines with explicit audit constraints.
+
+name: enterprise_ci_gate
+version: v1
+description: Enterprise CI/CD pipeline gate with strict direct leak enforcement and bounded index tolerance.
+
+thresholds:
+  fail_on_direct_leak: true
+  fail_on_context_leak: true
+  fail_on_cve_breach: true
+  fail_on_auth_bypass: true
+  fail_on_write_poisoning: true
+  max_firedamp_index: 0.0
+  allowed_status_codes:
+    - 401
+    - 403
+    - 404
+  ignored_channels: []
+  enforce_clean_baseline: true
+
+exemptions: []
+

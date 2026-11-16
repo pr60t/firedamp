@@ -33,6 +33,7 @@ firedamp [COMMAND] [OPTIONS]
 | `--dry-run` | | `False` | Runs atmospheric simulation mode without network or Docker containers. |
 | `--suite` | `-s` | `default` | Probing suite to execute: `default` (prompt strategies), `cve-regression` (Tier-1 CVE probes), `auth-matrix` (RAG Autorize table), `lifecycle`, `write-poisoning`, `agent-memory`, or `all`. |
 | `--scenario` | `-sc` | `None` | Targeted scenario: `lifecycle` (Pillar 4 race & staleness), `write-poisoning` (Pillar 5 cross-tenant injection), or `agent-memory` (Pillar 6 memory & tool cache). |
+| `--policy` | `-p` | `None` | Path to declarative YAML policy file (e.g. `policies/enterprise.yaml`) for CI/CD gates. |
 | `--vector-db` | `-db` | `chroma` | Target vector database backend: `chroma`, `milvus`, or `qdrant`. |
 | `--multitenancy` | `-m` | `shared` | Multitenancy architecture mode: `shared` (metadata filtered) or `isolated` (dedicated partition). |
 

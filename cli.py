@@ -40,6 +40,7 @@ def run_scan_flow(
     cpu_only: bool = False,
     suite: str = "default",
     scenario: Optional[str] = None,
+    policy: Optional[str] = None,
     vector_db: str = "chroma",
     multitenancy: str = "shared",
 ) -> int:
@@ -338,6 +339,20 @@ def run_scan_flow(
     if matrix_report:
         reporter.render_matrix(matrix_report)
 
+    # Step 4b: Declarative Policy Evaluation
+    policy_failed = False
+    if policy:
+        from core.policy import FiredampPolicy
+        try:
+            policy_obj = FiredampPolicy.from_yaml(policy)
+            policy_eval = policy_obj.evaluate(summary, probe_results, matrix_report=matrix_report)
+            reporter.render_policy_result(policy_eval)
+            if not policy_eval.passed:
+                policy_failed = True
+        except Exception as e:
+            reporter.log_alert(f"Failed to evaluate security policy '{policy}': {e}")
+            policy_failed = True
+
     if output:
         actual_fmt = format
         if format == "json":
@@ -359,8 +374,8 @@ def run_scan_flow(
             manager.stop(env)
         reporter.log_success("Container airway safely decommissioned.")
 
-    if fail_on_leak and summary.firedamp_index > 0:
-        reporter.log_alert("Hazardous atmosphere detected! Halting execution with exit code 1 (--fail-on-leak).")
+    if (fail_on_leak and summary.firedamp_index > 0) or policy_failed:
+        reporter.log_alert("Hazardous atmosphere or policy violation detected! Halting execution with exit code 1.")
         return 1
 
     return 0
@@ -429,6 +444,7 @@ try:
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
         suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'lifecycle', 'write-poisoning', 'agent-memory', 'all')."),
         scenario: Optional[str] = typer.Option(None, "--scenario", "-sc", help="Targeted attack scenario to execute ('lifecycle', 'write-poisoning', 'agent-memory')."),
+        policy: Optional[str] = typer.Option(None, "--policy", "-p", help="Path to declarative YAML policy file."),
         vector_db: str = typer.Option("chroma", "--vector-db", "-db", help="Target vector database backend ('chroma', 'milvus', 'qdrant')."),
         multitenancy: str = typer.Option("shared", "--multitenancy", "-m", help="Multitenancy architecture mode ('shared', 'isolated')."),
     ):
@@ -445,6 +461,7 @@ try:
             cpu_only=cpu_only,
             suite=suite,
             scenario=scenario,
+            policy=policy,
             vector_db=vector_db,
             multitenancy=multitenancy,
         )
@@ -489,6 +506,7 @@ except ImportError:
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
         scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "lifecycle", "write-poisoning", "agent-memory", "all"], help="Probing suite (default, cve-regression, auth-matrix, lifecycle, write-poisoning, agent-memory, all)")
         scan_parser.add_argument("--scenario", "-sc", default=None, choices=["lifecycle", "write-poisoning", "agent-memory"], help="Targeted attack scenario (lifecycle, write-poisoning, agent-memory)")
+        scan_parser.add_argument("--policy", "-p", default=None, help="Path to declarative YAML policy file")
         scan_parser.add_argument("--vector-db", "-db", default="chroma", choices=["chroma", "milvus", "qdrant"], help="Vector database backend (chroma, milvus, qdrant)")
         scan_parser.add_argument("--multitenancy", "-m", default="shared", choices=["shared", "isolated"], help="Multitenancy mode (shared, isolated)")
 
@@ -512,6 +530,7 @@ except ImportError:
                 cpu_only=args.cpu_only,
                 suite=args.suite,
                 scenario=args.scenario,
+                policy=args.policy,
                 vector_db=args.vector_db,
                 multitenancy=args.multitenancy,
             ))
