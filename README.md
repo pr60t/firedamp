@@ -7,9 +7,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pr60t/firedamp/wiki">📖 Documentation Wiki</a> •
+  <a href="https://github.com/pr60t/firedamp/wiki">📖 Wiki</a> •
   <a href="#quickstart">⚡ Quickstart</a> •
   <a href="https://github.com/pr60t/firedamp/wiki/CVE-Regression-Engine">🛡️ CVE Engine</a> •
+  <a href="https://github.com/pr60t/firedamp/wiki/API-Authorization-Matrix">🧭 Auth Matrix</a> •
   <a href="https://github.com/pr60t/firedamp/wiki/CLI-Reference">💻 CLI Reference</a>
 </p>
 
@@ -39,6 +40,8 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
 
 - 🔬 **Deterministic Zero-VRAM Assertions**: Cryptographic exact string matching evaluates token presence without LLM judges, GPU requirements, or latency overhead. *(A clean result indicates no leaks were found in the tested channels, not that isolation is mathematically proven).*
 - 🛡️ **Tier-1 CVE Regression Suite**: Automated behavioral fixtures for known RAG authorization flaws (IDOR/BOLA routes, raw UUID bypasses, cross-user write overwrites, and vector filter injections).
+- 🧭 **API Authorization Matrix (RAG Autorize)**: Automated request capture & replay testing across Owner, Intruder, Ex-Member, and Anonymous personas with structural diffing and canary detection (`--suite auth-matrix`).
+- ⚙️ **Configuration Matrix Testing**: Validates isolation boundaries across varying vector backends (`--vector-db chroma|milvus|qdrant`) and partitioning models (`--multitenancy shared|isolated`).
 - 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
 - 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
 - 📊 **Firedamp Index (0–100)**: Quantitative risk score derived strictly from probe ratio, canary penetration, and severity weighting. **Any canary leak is a hard fail.**
@@ -121,6 +124,18 @@ Run behavioral regression probes for known vulnerabilities (e.g. CVE-2026-44560,
 firedamp scan --target-url http://localhost:8080 --suite cve-regression
 ```
 
+### 🧭 API Authorization Matrix (RAG Autorize)
+Replay Owner requests across Intruder, Ex-Member, and Anonymous personas to evaluate status codes and structural key diffs:
+```bash
+firedamp scan --target-url http://localhost:8080 --suite auth-matrix
+```
+
+### ⚙️ Non-Default Vector Database Configurations
+Audit platforms deployed with Milvus or Qdrant multitenancy:
+```bash
+firedamp scan --target-url http://localhost:8080 --vector-db milvus --multitenancy shared --suite all
+```
+
 ### 🔍 Comprehensive Multi-Channel Audit
 Audit an existing target with prompt-based extraction and CVE regression combined:
 ```bash
@@ -172,6 +187,7 @@ pytest -v
 .
 ├── core/                # Canary generation, reporter & target lifecycle
 │   ├── engine.py        # Cryptographic canary engine & zero-VRAM matcher
+│   ├── matrix.py        # RAG Autorize API authorization replay engine
 │   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
 │   └── target.py        # Docker SDK target orchestration & lifecycle
 ├── adapters/            # Target platform drivers

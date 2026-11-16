@@ -53,7 +53,33 @@ firedamp scan \
 
 ---
 
-### Recipe 4: Continuous Integration in GitHub Actions (DevSecOps)
+### Recipe 4: API Authorization Matrix (RAG Autorize)
+**Scenario:** Replay recorded Owner operations (document ingestion, queries, metadata mutations) against unprivileged Intruder, Ex-Member, and Anonymous roles to uncover IDOR/BOLA or broken object-level authorization via Jaccard key diffs.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --suite auth-matrix \
+  --output auth-matrix-report.json
+```
+
+---
+
+### Recipe 5: Testing Non-Default Vector Database Architectures
+**Scenario:** Audit enterprise deployments utilizing partitioned Milvus or Qdrant vector databases in shared metadata multitenancy mode.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --vector-db milvus \
+  --multitenancy shared \
+  --suite all \
+  --fail-on-leak
+```
+
+---
+
+### Recipe 6: Continuous Integration in GitHub Actions (DevSecOps)
 **Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
 
 Create `.github/workflows/audit.yml` in your repo:

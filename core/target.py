@@ -31,6 +31,77 @@ except ImportError:
     NotFound = Exception  # type: ignore
     APIError = Exception  # type: ignore
 
+from enum import Enum
+
+
+class VectorDBType(str, Enum):
+    """Supported vector database backends."""
+    CHROMA = "chroma"
+    MILVUS = "milvus"
+    QDRANT = "qdrant"
+    PGVECTOR = "pgvector"
+
+
+class MultitenancyMode(str, Enum):
+    """Tenant isolation mode for vector store and knowledge bases."""
+    SHARED = "shared"       # Shared collection / table with metadata filter (WHERE tenant_id = ...)
+    ISOLATED = "isolated"   # Dedicated partition, collection, or database per tenant
+
+
+@dataclass
+class TargetConfigProfile:
+    """Configuration profile representing target backend architecture."""
+    vector_db: VectorDBType = VectorDBType.CHROMA
+    multitenancy: MultitenancyMode = MultitenancyMode.SHARED
+    embedding_engine: str = "cpu"
+    custom_preconditions: List[str] = field(default_factory=list)
+
+    @property
+    def active_preconditions(self) -> List[str]:
+        """Derives active probe preconditions based on vector DB and multitenancy mode."""
+        preconditions = set(self.custom_preconditions)
+        preconditions.add(self.vector_db.value)
+
+        if self.vector_db == VectorDBType.MILVUS and self.multitenancy == MultitenancyMode.SHARED:
+            preconditions.add("milvus_multitenancy")
+            preconditions.add("milvus_rbac")
+
+        if self.vector_db == VectorDBType.CHROMA:
+            preconditions.add("chroma_multitenancy")
+
+        if self.multitenancy == MultitenancyMode.SHARED:
+            preconditions.add("shared_store")
+        else:
+            preconditions.add("isolated_store")
+
+        return sorted(list(preconditions))
+
+    @classmethod
+    def from_args(
+        cls,
+        vector_db: str = "chroma",
+        multitenancy: str = "shared",
+        embedding_engine: str = "cpu",
+        preconditions: Optional[List[str]] = None,
+    ) -> TargetConfigProfile:
+        """Constructs a validated TargetConfigProfile from string arguments."""
+        try:
+            vdb = VectorDBType(vector_db.lower())
+        except ValueError:
+            vdb = VectorDBType.CHROMA
+
+        try:
+            mt = MultitenancyMode(multitenancy.lower())
+        except ValueError:
+            mt = MultitenancyMode.SHARED
+
+        return cls(
+            vector_db=vdb,
+            multitenancy=mt,
+            embedding_engine=embedding_engine,
+            custom_preconditions=preconditions or [],
+        )
+
 
 @dataclass
 class TargetEnvironment:
@@ -41,6 +112,7 @@ class TargetEnvironment:
     port: int = 8080
     container_id: Optional[str] = None
     managed_by_docker: bool = False
+    profile: TargetConfigProfile = field(default_factory=TargetConfigProfile)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property

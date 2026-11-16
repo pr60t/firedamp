@@ -39,9 +39,18 @@ def run_scan_flow(
     dry_run: bool = False,
     cpu_only: bool = False,
     suite: str = "default",
+    vector_db: str = "chroma",
+    multitenancy: str = "shared",
 ) -> int:
     """Execute atmospheric safety testing & cross-tenant leak detection across RAG shafts."""
     reporter.print_banner()
+
+    from core.target import TargetConfigProfile
+    config_profile = TargetConfigProfile.from_args(
+        vector_db=vector_db,
+        multitenancy=multitenancy,
+    )
+    reporter.render_config_summary(config_profile)
 
     # Step 1: Target Airway & Shaft Descent
     if dry_run:
@@ -49,7 +58,8 @@ def run_scan_flow(
         env = TargetEnvironment(
             name=target,
             base_url="http://mock-simulation:8080",
-            managed_by_docker=False
+            managed_by_docker=False,
+            profile=config_profile,
         )
         reporter.log_success(f"Simulation airway calibrated at [bold]{env.base_url}[/bold]")
     elif target_url:
@@ -57,6 +67,7 @@ def run_scan_flow(
             manager = RemoteTargetManager(target_url=target_url, target_name=target)
             try:
                 env = manager.start(timeout=15)
+                env.profile = config_profile
             except Exception as e:
                 reporter.log_alert(f"Failed to access target airway {target_url}: {e}")
                 return 1
@@ -69,10 +80,16 @@ def run_scan_flow(
             manager = DockerTargetManager(target_name=target)
             try:
                 env = manager.start(version=version, timeout=45, cpu_only=cpu_only)
+                env.profile = config_profile
             except Exception as e:
                 reporter.log_active(f"Docker provisioning note: {e}")
                 reporter.log_active("Falling back to local atmospheric simulation...")
-                env = TargetEnvironment(name=target, base_url="http://localhost:8080", managed_by_docker=False)
+                env = TargetEnvironment(
+                    name=target,
+                    base_url="http://localhost:8080",
+                    managed_by_docker=False,
+                    profile=config_profile,
+                )
         reporter.log_success(f"Target airway online at [bold]{env.base_url}[/bold]")
 
     # Step 2: Canary Cage Seeding (Alice)
@@ -199,6 +216,7 @@ def run_scan_flow(
                 planted_canaries=planted_tokens,
                 engine=engine,
                 dry_run=dry_run,
+                preconditions=config_profile.active_preconditions,
             )
             for res in cve_results:
                 probe_results.append(res)
@@ -243,7 +261,12 @@ def run_scan_flow(
         target_name=target,
         target_url=env.base_url,
         planted_canaries=planted_tokens,
-        probe_results=probe_results
+        probe_results=probe_results,
+        config_profile={
+            "vector_db": config_profile.vector_db.value,
+            "multitenancy": config_profile.multitenancy.value,
+            "preconditions": config_profile.active_preconditions,
+        },
     )
     reporter.render_summary(summary)
 
@@ -340,6 +363,8 @@ try:
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
         suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'all')."),
+        vector_db: str = typer.Option("chroma", "--vector-db", "-db", help="Target vector database backend ('chroma', 'milvus', 'qdrant')."),
+        multitenancy: str = typer.Option("shared", "--multitenancy", "-m", help="Multitenancy architecture mode ('shared', 'isolated')."),
     ):
         """Execute a cross-tenant isolation and canary exfiltration scan."""
         exit_code = run_scan_flow(
@@ -353,6 +378,8 @@ try:
             dry_run=dry_run,
             cpu_only=cpu_only,
             suite=suite,
+            vector_db=vector_db,
+            multitenancy=multitenancy,
         )
         if exit_code != 0:
             raise typer.Exit(code=exit_code)
@@ -394,6 +421,8 @@ except ImportError:
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
         scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "all"], help="Probing suite (default, cve-regression, auth-matrix, all)")
+        scan_parser.add_argument("--vector-db", "-db", default="chroma", choices=["chroma", "milvus", "qdrant"], help="Vector database backend (chroma, milvus, qdrant)")
+        scan_parser.add_argument("--multitenancy", "-m", default="shared", choices=["shared", "isolated"], help="Multitenancy mode (shared, isolated)")
 
         # List targets
         subparsers.add_parser("list-targets", help="List supported target platforms")
@@ -414,6 +443,8 @@ except ImportError:
                 dry_run=args.dry_run,
                 cpu_only=args.cpu_only,
                 suite=args.suite,
+                vector_db=args.vector_db,
+                multitenancy=args.multitenancy,
             ))
         elif args.subcommand == "list-targets":
             list_targets_flow()

@@ -32,6 +32,8 @@ firedamp [COMMAND] [OPTIONS]
 | `--fail-on-leak` | | `False` | Halts execution with **exit code 1** if any canary leak is detected (ideal for CI/CD). |
 | `--dry-run` | | `False` | Runs atmospheric simulation mode without network or Docker containers. |
 | `--suite` | `-s` | `default` | Probing suite to execute: `default` (prompt strategies), `cve-regression` (Tier-1 CVE probes), `auth-matrix` (RAG Autorize table), or `all`. |
+| `--vector-db` | `-db` | `chroma` | Target vector database backend: `chroma`, `milvus`, or `qdrant`. |
+| `--multitenancy` | `-m` | `shared` | Multitenancy architecture mode: `shared` (metadata filtered) or `isolated` (dedicated partition). |
 
 ---
 

@@ -32,6 +32,7 @@ class AuditSummary:
     status: str
     timestamp: str = datetime.now(timezone.utc).isoformat()
     probe_results: List[Dict[str, Any]] = None
+    config_profile: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -62,6 +63,7 @@ class FiredampReporter:
         target_url: str,
         planted_canaries: List[CanaryToken],
         probe_results: List[ProbeResult],
+        config_profile: Optional[Dict[str, Any]] = None,
     ) -> AuditSummary:
         total_probes = len(probe_results)
         leaked_probes = [p for p in probe_results if p.is_leak]
@@ -100,7 +102,8 @@ class FiredampReporter:
             context_leaks=context_leaks,
             firedamp_index=index_score,
             status=status,
-            probe_results=[asdict(p) for p in probe_results]
+            probe_results=[asdict(p) for p in probe_results],
+            config_profile=config_profile,
         )
 
     def print_banner(self) -> None:
@@ -192,6 +195,16 @@ class FiredampReporter:
             f"{summary.context_leaks} leak(s)",
             "[bold yellow][🚨] ELEVATED[/bold yellow]" if summary.context_leaks > 0 else "[bold green]0.0 ppm (Clear)[/bold green]"
         )
+        if summary.config_profile:
+            vdb = summary.config_profile.get("vector_db", "chroma")
+            mt = summary.config_profile.get("multitenancy", "shared")
+            preconds = summary.config_profile.get("preconditions", [])
+            table.add_row(
+                "Target Backend Matrix",
+                f"VectorDB: {vdb} | Mode: {mt}",
+                f"{len(preconds)} active precondition(s)",
+                f"[bold cyan]{vdb}:{mt}[/bold cyan]"
+            )
         table.add_row(
             "Firedamp Index",
             "Composite Risk Exposure",
@@ -223,6 +236,18 @@ class FiredampReporter:
                     tokens
                 )
             self.console.print(leak_table)
+
+    def render_config_summary(self, profile: Any) -> None:
+        """Renders per-configuration profile summary."""
+        vdb = getattr(profile.vector_db, "value", str(profile.vector_db))
+        mt = getattr(profile.multitenancy, "value", str(profile.multitenancy))
+        preconds = profile.active_preconditions if hasattr(profile, "active_preconditions") else []
+        self.console.print(
+            f"[dim][~] Target Architecture Profile: "
+            f"vector_db=[bold white]{vdb}[/bold white] | "
+            f"multitenancy=[bold white]{mt}[/bold white] | "
+            f"preconditions={preconds}[/dim]"
+        )
 
     def render_matrix(self, report: Any) -> None:
         """Renders an Autorize-style Actor x Operation authorization matrix table."""
