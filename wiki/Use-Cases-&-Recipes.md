@@ -79,7 +79,31 @@ firedamp scan \
 
 ---
 
-### Recipe 6: Continuous Integration in GitHub Actions (DevSecOps)
+### Recipe 6: Probing Time & Sequence Attacks (Revocation Races & Cache Staleness)
+**Scenario:** Audit temporal isolation boundaries to ensure concurrent queries during ACL revocation cannot slip through, post-revocation cache TTLs do not leak stale data, and collections deleted while embedding do not orphan chunks in shared stores.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --scenario lifecycle \
+  --output lifecycle-audit.json
+```
+
+---
+
+### Recipe 7: Write-Side Poisoning & Cross-Tenant Document Injection
+**Scenario:** Verify cross-tenant write isolation by attempting to inject documents into another user's collection or overwrite another user's files with unprivileged credentials, validating whether subsequent benign queries return adversarial tracers.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --scenario write-poisoning \
+  --fail-on-leak
+```
+
+---
+
+### Recipe 8: Continuous Integration in GitHub Actions (DevSecOps)
 **Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
 
 Create `.github/workflows/audit.yml` in your repo:

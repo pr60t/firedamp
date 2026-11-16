@@ -101,6 +101,24 @@ class TargetAdapter(ABC):
         """
         pass
 
+    def inject_into_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        target_collection_id: str,
+        document: DecoyDocument,
+    ) -> Dict[str, Any]:
+        """
+        Attempts to inject an unauthorized document directly into another tenant's collection.
+        Default implementation attempts overwrite_resource.
+        """
+        return self.overwrite_resource(
+            base_url=base_url,
+            session=session,
+            resource_ref=target_collection_id,
+            payload=document.content,
+        )
+
     @abstractmethod
     def enumerate_resources(
         self,

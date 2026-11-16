@@ -41,6 +41,8 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
 - 🔬 **Deterministic Zero-VRAM Assertions**: Cryptographic exact string matching evaluates token presence without LLM judges, GPU requirements, or latency overhead. *(A clean result indicates no leaks were found in the tested channels, not that isolation is mathematically proven).*
 - 🛡️ **Tier-1 CVE Regression Suite**: Automated behavioral fixtures for known RAG authorization flaws (IDOR/BOLA routes, raw UUID bypasses, cross-user write overwrites, and vector filter injections).
 - 🧭 **API Authorization Matrix (RAG Autorize)**: Automated request capture & replay testing across Owner, Intruder, Ex-Member, and Anonymous personas with structural diffing and canary detection (`--suite auth-matrix`).
+- ⚡ **Time & Sequence Lifecycle Probes**: Tests race conditions during concurrent revocation, post-revocation cache staleness, and delete-while-indexing orphan chunk leaks (`--scenario lifecycle`).
+- 💉 **Write-Side Poisoning Probes**: Verifies cross-tenant integrity by detecting if unauthorized injection or overwrites bleed into legitimate queries (`--scenario write-poisoning`).
 - ⚙️ **Configuration Matrix Testing**: Validates isolation boundaries across varying vector backends (`--vector-db chroma|milvus|qdrant`) and partitioning models (`--multitenancy shared|isolated`).
 - 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
 - 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
@@ -130,6 +132,18 @@ Replay Owner requests across Intruder, Ex-Member, and Anonymous personas to eval
 firedamp scan --target-url http://localhost:8080 --suite auth-matrix
 ```
 
+### ⚡ Temporal & Sequence Scenarios
+Test atomic revocation races, cached authorization staleness, and delete-while-indexing orphan chunk leaks:
+```bash
+firedamp scan --target-url http://localhost:8080 --scenario lifecycle
+```
+
+### 💉 Write-Side Poisoning & Integrity Probes
+Verify whether unauthorized users can inject documents or overwrite resources in other tenants' scopes:
+```bash
+firedamp scan --target-url http://localhost:8080 --scenario write-poisoning
+```
+
 ### ⚙️ Non-Default Vector Database Configurations
 Audit platforms deployed with Milvus or Qdrant multitenancy:
 ```bash
@@ -195,6 +209,7 @@ pytest -v
 │   └── openwebui/       # Modular Open WebUI driver (auth, ingest, query, lifecycle)
 ├── probes/              # Decoupled behavioral regression suites
 │   ├── schemas/         # 8-Pillar BugClass & ProbeChannel taxonomies
+│   ├── scenarios/       # Lifecycle (Pillar 4) & write-poisoning (Pillar 5) scenarios
 │   ├── cves/            # Tier-1 CVE fixtures (CVE-2026-44560, 45398, 28788, 54019)
 │   │   ├── cve_catalog.json # Machine-readable 21-CVE database
 │   │   └── CVE_CATALOG.md   # Attack strategy reference manual

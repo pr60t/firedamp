@@ -39,6 +39,7 @@ def run_scan_flow(
     dry_run: bool = False,
     cpu_only: bool = False,
     suite: str = "default",
+    scenario: Optional[str] = None,
     vector_db: str = "chroma",
     multitenancy: str = "shared",
 ) -> int:
@@ -256,6 +257,49 @@ def run_scan_flow(
                         )
                     )
 
+    # 3d. Scenario Vectors (Pillar 4: Time & Sequence Attacks)
+    if scenario == "lifecycle" or suite in ("lifecycle", "all"):
+        from probes.scenarios.lifecycle import run_lifecycle_scenarios
+        with console.status("[bold cyan]Dispatching Time & Sequence Lifecycle attack scenarios...", spinner="dots") as status:
+            lifecycle_results = run_lifecycle_scenarios(
+                adapter=adapter,
+                base_url=env.base_url,
+                alice=alice_session,
+                bob=bob_session,
+                planted_canaries=planted_tokens,
+                engine=engine,
+                dry_run=dry_run,
+            )
+            for res in lifecycle_results:
+                probe_results.append(res)
+                if res.is_leak:
+                    reporter.log_alert(
+                        f"Lifecycle breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+                else:
+                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+
+    # 3e. Scenario Vectors (Pillar 5: Write-Side Poisoning)
+    if scenario in ("write-poisoning", "write_poisoning") or suite in ("write-poisoning", "all"):
+        from probes.scenarios.write_poisoning import run_write_poisoning_scenarios
+        with console.status("[bold cyan]Dispatching Write-Side Poisoning attack scenarios...", spinner="dots") as status:
+            poison_results = run_write_poisoning_scenarios(
+                adapter=adapter,
+                base_url=env.base_url,
+                alice=alice_session,
+                bob=bob_session,
+                engine=engine,
+                dry_run=dry_run,
+            )
+            for res in poison_results:
+                probe_results.append(res)
+                if res.is_leak:
+                    reporter.log_alert(
+                        f"Poison breach ({res.probe_category})! Injected tracer compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+                else:
+                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+
     # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
         target_name=target,
@@ -362,7 +406,8 @@ try:
         fail_on_leak: bool = typer.Option(False, "--fail-on-leak", help="Exit code 1 if gas is detected."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
-        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'all')."),
+        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'lifecycle', 'write-poisoning', 'all')."),
+        scenario: Optional[str] = typer.Option(None, "--scenario", "-sc", help="Targeted attack scenario to execute ('lifecycle', 'write-poisoning')."),
         vector_db: str = typer.Option("chroma", "--vector-db", "-db", help="Target vector database backend ('chroma', 'milvus', 'qdrant')."),
         multitenancy: str = typer.Option("shared", "--multitenancy", "-m", help="Multitenancy architecture mode ('shared', 'isolated')."),
     ):
@@ -378,6 +423,7 @@ try:
             dry_run=dry_run,
             cpu_only=cpu_only,
             suite=suite,
+            scenario=scenario,
             vector_db=vector_db,
             multitenancy=multitenancy,
         )
@@ -420,7 +466,8 @@ except ImportError:
         scan_parser.add_argument("--fail-on-leak", action="store_true", help="Exit code 1 if gas detected")
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
-        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "all"], help="Probing suite (default, cve-regression, auth-matrix, all)")
+        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "lifecycle", "write-poisoning", "all"], help="Probing suite (default, cve-regression, auth-matrix, lifecycle, write-poisoning, all)")
+        scan_parser.add_argument("--scenario", "-sc", default=None, choices=["lifecycle", "write-poisoning"], help="Targeted attack scenario (lifecycle, write-poisoning)")
         scan_parser.add_argument("--vector-db", "-db", default="chroma", choices=["chroma", "milvus", "qdrant"], help="Vector database backend (chroma, milvus, qdrant)")
         scan_parser.add_argument("--multitenancy", "-m", default="shared", choices=["shared", "isolated"], help="Multitenancy mode (shared, isolated)")
 
@@ -443,6 +490,7 @@ except ImportError:
                 dry_run=args.dry_run,
                 cpu_only=args.cpu_only,
                 suite=args.suite,
+                scenario=args.scenario,
                 vector_db=args.vector_db,
                 multitenancy=args.multitenancy,
             ))

