@@ -224,6 +224,47 @@ class FiredampReporter:
                 )
             self.console.print(leak_table)
 
+    def render_matrix(self, report: Any) -> None:
+        """Renders an Autorize-style Actor x Operation authorization matrix table."""
+        self.console.print("\n")
+        title_style = "bold green" if report.passed else "bold red"
+        matrix_table = Table(
+            title=f"[{title_style}]API Spec Authorization Matrix (RAG Autorize)[/{title_style}]",
+            border_style="cyan" if report.passed else "red",
+            header_style="bold cyan",
+        )
+        matrix_table.add_column("API Operation / Resource Path", style="white", no_wrap=True)
+
+        for actor in report.actors:
+            matrix_table.add_column(actor.value, style="bold")
+
+        # Map grid results by (op_name, actor_role)
+        grid_map = {(c.op_name, c.actor_role): c for c in report.grid}
+
+        for op_name in report.operations:
+            row = [op_name]
+            for actor in report.actors:
+                cell = grid_map.get((op_name, actor))
+                if not cell:
+                    row.append("[dim]N/A[/dim]")
+                elif cell.is_violation:
+                    row.append(f"[bold red]{cell.http_status} [{cell.auth_status.value}][/bold red]")
+                elif cell.auth_status.value == "ENFORCED":
+                    row.append(f"[bold green]{cell.http_status} [ENFORCED][/bold green]")
+                else:
+                    row.append(f"[yellow]{cell.http_status} [{cell.auth_status.value}][/yellow]")
+            matrix_table.add_row(*row)
+
+        self.console.print(matrix_table)
+        if report.total_violations > 0:
+            self.console.print(
+                f"[bold red][🚨] Authorization Matrix Failure: {report.total_violations} unauthorized boundary bypass(es) detected![/bold red]\n"
+            )
+        else:
+            self.console.print(
+                "[bold green][+] Authorization Matrix Verified: All unauthorized and unauthenticated replays successfully enforced.[/bold green]\n"
+            )
+
     def export_json(self, summary: AuditSummary, file_path: str) -> None:
         """Exports audit summary to a formatted JSON file for CI/CD pipelines."""
         with open(file_path, "w", encoding="utf-8") as f:

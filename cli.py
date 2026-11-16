@@ -209,6 +209,35 @@ def run_scan_flow(
                 else:
                     reporter.log_success(f"Passed CVE probe: [dim]{res.probe_category}[/dim]")
 
+    # 3c. Authorization Matrix Suite (RAG Autorize)
+    matrix_report = None
+    if suite in ("auth-matrix", "all"):
+        from core.matrix import AuthorizationMatrixRunner
+        with console.status("[bold cyan]Replaying operations across Actor x Resource authorization matrix...", spinner="dots") as status:
+            matrix_runner = AuthorizationMatrixRunner(engine=engine)
+            matrix_report = matrix_runner.run_matrix(
+                adapter=adapter,
+                base_url=env.base_url,
+                alice=alice_session,
+                bob=bob_session,
+                planted_canaries=planted_tokens,
+                dry_run=dry_run,
+            )
+            for cell in matrix_report.grid:
+                if cell.is_violation:
+                    probe_results.append(
+                        ProbeResult(
+                            probe_id=cell.op_id,
+                            probe_prompt=f"Matrix Replay: {cell.op_name} as {cell.actor_role.value}",
+                            probe_category="auth_matrix",
+                            target_response=cell.details,
+                            retrieved_contexts=[],
+                            leaked_canaries=cell.canaries_leaked,
+                            severity=LeakSeverity.DIRECT_LEAK if cell.canaries_leaked else LeakSeverity.CONTEXT_LEAK,
+                            channel="direct_api",
+                        )
+                    )
+
     # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
         target_name=target,
@@ -217,6 +246,9 @@ def run_scan_flow(
         probe_results=probe_results
     )
     reporter.render_summary(summary)
+
+    if matrix_report:
+        reporter.render_matrix(matrix_report)
 
     if output:
         actual_fmt = format
@@ -307,7 +339,7 @@ try:
         fail_on_leak: bool = typer.Option(False, "--fail-on-leak", help="Exit code 1 if gas is detected."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
-        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'all')."),
+        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'all')."),
     ):
         """Execute a cross-tenant isolation and canary exfiltration scan."""
         exit_code = run_scan_flow(
@@ -361,7 +393,7 @@ except ImportError:
         scan_parser.add_argument("--fail-on-leak", action="store_true", help="Exit code 1 if gas detected")
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
-        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "all"], help="Probing suite (default, cve-regression, all)")
+        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "all"], help="Probing suite (default, cve-regression, auth-matrix, all)")
 
         # List targets
         subparsers.add_parser("list-targets", help="List supported target platforms")

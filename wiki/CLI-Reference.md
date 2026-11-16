@@ -31,7 +31,7 @@ firedamp [COMMAND] [OPTIONS]
 | `--cpu-only` | | `False` | Disables GPU/Ollama dependencies in Docker; runs RAG embeddings purely on CPU. |
 | `--fail-on-leak` | | `False` | Halts execution with **exit code 1** if any canary leak is detected (ideal for CI/CD). |
 | `--dry-run` | | `False` | Runs atmospheric simulation mode without network or Docker containers. |
-| `--suite` | `-s` | `default` | Probing suite to execute: `default` (prompt strategies), `cve-regression` (Tier-1 CVE behavioral probes), or `all`. |
+| `--suite` | `-s` | `default` | Probing suite to execute: `default` (prompt strategies), `cve-regression` (Tier-1 CVE probes), `auth-matrix` (RAG Autorize table), or `all`. |
 
 ---
 
