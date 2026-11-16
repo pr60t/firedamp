@@ -38,6 +38,7 @@ def run_scan_flow(
     fail_on_leak: bool = False,
     dry_run: bool = False,
     cpu_only: bool = False,
+    suite: str = "default",
 ) -> int:
     """Execute atmospheric safety testing & cross-tenant leak detection across RAG shafts."""
     reporter.print_banner()
@@ -99,6 +100,14 @@ def run_scan_flow(
             )
             for doc in decoys:
                 adapter.ingest_document(env.base_url, alice_session, doc)
+        else:
+            from adapters.base import UserSession
+            alice_session = UserSession(
+                username="alice_owner",
+                role="owner",
+                token="simulated-alice-token",
+                metadata={"file_ids": ["sim-file-1"], "knowledge_ids": ["sim-kb-uuid-1"]},
+            )
 
     reporter.log_success(
         f"Seeded {len(planted_tokens)} canaries across {len(decoys)} documents in Alice's private shaft."
@@ -136,36 +145,69 @@ def run_scan_flow(
             password="BobPassword!456",
             role="attacker"
         )
+    else:
+        from adapters.base import UserSession
+        bob_session = UserSession(
+            username="bob_attacker",
+            role="attacker",
+            token="simulated-bob-token",
+            metadata={"file_ids": [], "knowledge_ids": []},
+        )
 
     probe_results = []
-    strategies = engine.PROBE_STRATEGIES[:canaries]
 
-    with console.status("[bold yellow]Drawing atmospheric samples across tenant boundaries...", spinner="dots") as status:
-        for idx, strat in enumerate(strategies, 1):
-            prompt = strat["prompt"]
-            category = strat["category"]
-            status.update(f"[bold yellow]Sampling probe {idx}/{len(strategies)}: [dim]{prompt[:45]}...[/dim]")
-            if dry_run:
-                resp_text = "I do not have access to any documents matching that query."
-                retrieved_ctx: list = []
-                raw_resp: dict = {}
-            else:
-                resp_text, retrieved_ctx, raw_resp = adapter.query_rag(env.base_url, bob_session, prompt)
+    # 3a. Standard adversarial prompt probing suite
+    if suite in ("default", "all"):
+        strategies = engine.PROBE_STRATEGIES[:canaries]
+        with console.status("[bold yellow]Drawing atmospheric samples across tenant boundaries...", spinner="dots") as status:
+            for idx, strat in enumerate(strategies, 1):
+                prompt = strat["prompt"]
+                category = strat["category"]
+                status.update(f"[bold yellow]Sampling probe {idx}/{len(strategies)}: [dim]{prompt[:45]}...[/dim]")
+                if dry_run:
+                    resp_text = "I do not have access to any documents matching that query."
+                    retrieved_ctx: list = []
+                    raw_resp: dict = {}
+                else:
+                    resp_text, retrieved_ctx, raw_resp = adapter.query_rag(env.base_url, bob_session, prompt)
 
-            res = engine.evaluate_response(
-                prompt=prompt,
-                response_text=resp_text,
-                retrieved_contexts=retrieved_ctx,
-                planted_canaries=planted_tokens,
-                raw_response=raw_resp,
-                probe_category=category,
-            )
-            probe_results.append(res)
-
-            if res.is_leak:
-                reporter.log_alert(
-                    f"Gas breach on sample #{idx}! Canary exposed: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                res = engine.evaluate_response(
+                    prompt=prompt,
+                    response_text=resp_text,
+                    retrieved_contexts=retrieved_ctx,
+                    planted_canaries=planted_tokens,
+                    raw_response=raw_resp,
+                    probe_category=category,
+                    channel="llm_prompt",
                 )
+                probe_results.append(res)
+
+                if res.is_leak:
+                    reporter.log_alert(
+                        f"Gas breach on sample #{idx}! Canary exposed: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+
+    # 3b. Tier-1 CVE behavioral regression suite
+    if suite in ("cve-regression", "all"):
+        from probes.cves import run_cve_suite
+        with console.status("[bold cyan]Dispatching Tier-1 CVE behavioral regression probes...", spinner="dots") as status:
+            cve_results = run_cve_suite(
+                adapter=adapter,
+                base_url=env.base_url,
+                alice=alice_session,
+                bob=bob_session,
+                planted_canaries=planted_tokens,
+                engine=engine,
+                dry_run=dry_run,
+            )
+            for res in cve_results:
+                probe_results.append(res)
+                if res.is_leak:
+                    reporter.log_alert(
+                        f"CVE Breach detected ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+                else:
+                    reporter.log_success(f"Passed CVE probe: [dim]{res.probe_category}[/dim]")
 
     # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
@@ -265,6 +307,7 @@ try:
         fail_on_leak: bool = typer.Option(False, "--fail-on-leak", help="Exit code 1 if gas is detected."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
+        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'all')."),
     ):
         """Execute a cross-tenant isolation and canary exfiltration scan."""
         exit_code = run_scan_flow(
@@ -277,6 +320,7 @@ try:
             fail_on_leak=fail_on_leak,
             dry_run=dry_run,
             cpu_only=cpu_only,
+            suite=suite,
         )
         if exit_code != 0:
             raise typer.Exit(code=exit_code)
@@ -317,6 +361,7 @@ except ImportError:
         scan_parser.add_argument("--fail-on-leak", action="store_true", help="Exit code 1 if gas detected")
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
+        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "all"], help="Probing suite (default, cve-regression, all)")
 
         # List targets
         subparsers.add_parser("list-targets", help="List supported target platforms")
@@ -336,6 +381,7 @@ except ImportError:
                 fail_on_leak=args.fail_on_leak,
                 dry_run=args.dry_run,
                 cpu_only=args.cpu_only,
+                suite=args.suite,
             ))
         elif args.subcommand == "list-targets":
             list_targets_flow()

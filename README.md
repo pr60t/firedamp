@@ -2,13 +2,20 @@
   <img src="firedamp_banner.svg" alt="Firedamp Banner" width="100%" />
 </p>
 
-> Automated cross-tenant data leakage detection, isolation auditing, and vulnerability probing for Retrieval-Augmented Generation (RAG) platforms.
->
-> 📖 **[Read the Documentation Wiki](https://github.com/pr60t/firedamp/wiki)** | **[Quickstart](https://github.com/pr60t/firedamp/wiki/Quickstart)** | **[CLI Reference](https://github.com/pr60t/firedamp/wiki/CLI-Reference)**
+<p align="center">
+  <strong>Automated cross-tenant data leakage detection, boundary auditing, and vulnerability regression testing for RAG & AI platforms.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/pr60t/firedamp/wiki">📖 Documentation Wiki</a> •
+  <a href="https://github.com/pr60t/firedamp/wiki/Quickstart">⚡ Quickstart</a> •
+  <a href="https://github.com/pr60t/firedamp/wiki/CVE-Regression-Engine">🛡️ CVE Engine</a> •
+  <a href="https://github.com/pr60t/firedamp/wiki/CLI-Reference">💻 CLI Reference</a>
+</p>
 
 ---
 
-```
+```text
                        .---.
                       /     \
                      | () () |    "If the canary falls silent,
@@ -19,29 +26,29 @@
                     \_________/
 ```
 
-Named after **firedamp**—the odorless, explosive mine gas detected with caged canaries—**Firedamp** automatically catches cross-tenant data leakage in Retrieval-Augmented Generation (RAG) stacks before adversaries or auditors do.
+Named after **firedamp**—the odorless, explosive mine gas detected with caged canaries—**Firedamp** automatically catches cross-tenant data leakage and authorization failures in Retrieval-Augmented Generation (RAG) platforms before adversaries or auditors do.
 
-### How It Works
-1. **Plant:** Injects verifiable, high-entropy **canary tokens** into private documents owned by **Alice**.
-2. **Probe:** Dispatches multi-vector exfiltration queries as an unauthorized user (**Bob**).
-3. **Detect:** Deterministically flags any tokens exposed in assistant answers, citations, or background context chunks.
+### The Attack & Audit Cycle
+1. **Plant:** Injects verifiable, high-entropy cryptographic **canary tokens** into private documents owned by **Alice**.
+2. **Probe:** Dispatches multi-channel exfiltration and historical CVE regression probes as an unauthorized tenant (**Bob**).
+3. **Detect:** Deterministically flags any tokens exposed in model responses, citation chunks, metadata, direct vector searches, or batch mutations.
 
 ---
 
-## Core Features
+## Key Capabilities
 
-- 🎯 **Target-Agnostic Adapter Pattern**: Decoupled driver architecture. **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
-- 🔬 **Deterministic Zero-VRAM Assertions**: Checks whether canary tokens appear in responses or context chunks using cryptographic token tracking and string/regex matching without LLM judges or GPU VRAM. **A clean result means no leak was found in the tested channels, not that isolation is proven.**
-- 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration simulating data owners (Alice) and malicious or unauthorized queriers (Bob).
-- 📊 **Firedamp Index**: Quantitative 0–100 risk score factoring in probe ratio, canary penetration, and severity weighting. **Any leak is a hard fail.**
-- 🚨 **Instant Visual Telemetry**: High-contrast, rich terminal interface showing real-time probe progress, "Clear" safety badges, or "Gas Detected" incident summaries.
-- 🔄 **CI/CD Integration**: Zero-friction integration into automated testing pipelines with non-zero exit codes on isolation failures (`--fail-on-leak`).
+- 🔬 **Deterministic Zero-VRAM Assertions**: Cryptographic exact string matching evaluates token presence without LLM judges, GPU requirements, or latency overhead. *(A clean result indicates no leaks were found in the tested channels, not that isolation is mathematically proven).*
+- 🛡️ **Tier-1 CVE Regression Suite**: Automated behavioral fixtures for known RAG authorization flaws (IDOR/BOLA routes, raw UUID bypasses, cross-user write overwrites, and vector filter injections).
+- 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
+- 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
+- 📊 **Firedamp Index (0–100)**: Quantitative risk score derived strictly from probe ratio, canary penetration, and severity weighting. **Any canary leak is a hard fail.**
+- 🔄 **DevSecOps & CI/CD Gate**: Native non-zero exit codes on isolation failures (`--fail-on-leak`) with automated export to SARIF, Markdown, and JSON.
 
 ---
 
 ## Architecture Overview
 
-```
+```text
                           ┌──────────────────────────────────────────────┐
                           │                Firedamp CLI                  │
                           └──────────────────────┬───────────────────────┘
@@ -49,92 +56,82 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
                                                  ▼
                           ┌──────────────────────────────────────────────┐
                           │               Orchestration                  │
-                          │   (Docker Provisioning / Target Lifecycle)   │
+                          │   (Docker Provisioning / Remote Airway)      │
                           └──────────────────────┬───────────────────────┘
                                                  │
                         ┌────────────────────────┴────────────────────────┐
                         ▼                                                 ▼
               ┌───────────────────┐                             ┌───────────────────┐
               │   Alice Session   │                             │    Bob Session    │
-              │  (Victim / Owner) │                             │(Attacker / Prober)│
+              │  (Tenant / Owner) │                             │ (Untrusted Prober)│
               └─────────┬─────────┘                             └─────────┬─────────┘
                         │                                                 │
-              Injects Canary Documents                                 Dispatches
-              CANARY-FRDP-<UUID>                                   Exfiltration Probes
+              Indexes Canary Documents                                 Dispatches
+              CANARY-FRDP-<UUID>-<HASH>                            Multi-Channel Probes
                         │                                                 │
                         ▼                                                 ▼
              ┌───────────────────────────────────────────────────────────────────────┐
              │                         Target RAG Platform                           │
-             │                (e.g., Open WebUI, Vector DB, RAG API)                 │
+             │        (Open WebUI REST APIs, Vector DB, Knowledge Collections)       │
              └───────────────────────────────────┬───────────────────────────────────┘
                                                  │
                                                  ▼
                                 ┌─────────────────────────────────┐
                                 │     Probing & Leak Engine       │
-                                │   (Deterministic Matcher,       │
-                                │    Entropy & Context Inspector) │
+                                │   (Exact Matcher & Substring    │
+                                │    Entropy Context Inspector)   │
                                 └────────────────┬────────────────┘
                                                  │
                                                  ▼
                                 ┌─────────────────────────────────┐
                                 │         Reporter & Score        │
-                                │    [Clear] vs. [Gas Detected]   │
+                                │   [Clear] vs. [Gas Detected]    │
                                 └─────────────────────────────────┘
 ```
 
-### 1. Adapters (`firedamp.adapters`)
-Adapters translate standard Firedamp lifecycle operations (user registration, document ingestion, collection assignment, semantic querying) into target-specific API calls. Each adapter implements the `TargetAdapter` interface, allowing new platforms to be plugged in with minimal boilerplate.
-
-### 2. Canary Tokens (`firedamp.core.engine`)
-Canaries are synthetically generated, high-entropy tokens with recognizable preambles and checksum validation:
-```
-CANARY-FRDP-9c8e14d2-7b19-4f22-92a1-0e19a3bb9f01-7A2F
-```
-These are embedded across realistic decoy documents (HR complaints, quarterly earnings, unreleased API keys, internal architecture notes). The target platform indexes them into its own vector space.
-
-### 3. Deterministic Assertions (Zero GPU VRAM)
-Traditional LLM evaluation frameworks (e.g. LLM-as-a-judge) require spinning up separate 70B parameter models, generating high latency and massive VRAM footprints. Firedamp operates deterministically:
-- Inspects **both** raw retrieval context payloads (citations, chunk metadata) and final LLM responses.
-- Evaluates token matches via cryptographic substring matching.
-- Operates against local Docker containers running real CPU embeddings (Open WebUI's built-in SentenceTransformer) or connected to local Ollama instances (e.g. `llama3:8b`).
+### Probing Channels & Bug Classes
+Firedamp tests authorization boundaries across 6 distinct transmission channels:
+- `direct_api`: Direct REST/RPC calls without prompt orchestration.
+- `llm_prompt`: Adversarial semantic prompts targeting context bleed.
+- `citation_metadata`: Document references, chunk headers, and citation sources.
+- `write_mutation`: Cross-user batch mutation and file overwrites.
+- `vector_payload`: Direct vector database filter and collection parameter queries.
+- `lifecycle_event`: Temporal permission changes (sharing $\rightarrow$ revocation $\rightarrow$ verification).
 
 ---
 
-## Quickstart & CLI Usage
+## Quickstart
 
-### One-Line Install Script
-Install Firedamp directly with a single shell command:
+### ⚡ One-Line Install Script
+Install Firedamp directly into `~/.local/bin/firedamp`:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
 ```
 
-### Basic Scan (Ephemeral Docker Container)
-Spin up an Open WebUI container, execute an Alice-to-Bob isolation scan, and tear it down automatically:
+### 🧪 Instant Simulation (No Docker Required)
+Test the full pipeline, UI telemetry, and reporting in simulation mode:
 ```bash
-firedamp scan --target openwebui --version main --cpu-only
+firedamp scan --dry-run
 ```
 
-### Scan Existing Target Deployment
-Scan an existing instance you own or have explicit written permission to test (disposable local/dev instances strongly recommended):
+### 🛡️ Historical CVE Regression Probing
+Run behavioral regression probes for known vulnerabilities (e.g. CVE-2026-44560, CVE-2026-45398, CVE-2026-28788):
+```bash
+firedamp scan --target-url http://localhost:8080 --suite cve-regression
+```
+
+### 🔍 Comprehensive Multi-Channel Audit
+Audit an existing target with prompt-based extraction and CVE regression combined:
 ```bash
 firedamp scan \
   --target openwebui \
   --target-url http://localhost:8080 \
+  --suite all \
   --canaries 4 \
   --fail-on-leak
 ```
 
-> ⚠️ **Permission & Data Notice:** Only run Firedamp against systems you own or have explicit authorization to test. Cleanup removes the files, collections, and chats it creates; test user accounts (`alice_owner`, `bob_attacker`) remain in the target system.
-
-### List Supported Adapters
-```bash
-firedamp list-targets
-```
-
-### Export Results to JSON for CI/CD
-```bash
-firedamp scan --target openwebui --output audit-report.json --fail-on-leak
-```
+> ⚠️ **Permission & Data Notice:** Only test systems you own or have explicit written authorization to audit (disposable local/dev instances recommended). Cleanup removes files, collections, and chats created during the audit; test user accounts (`alice_owner`, `bob_attacker`) remain in the target database.
 
 ---
 
@@ -142,9 +139,9 @@ firedamp scan --target openwebui --output audit-report.json --fail-on-leak
 
 ### Prerequisites
 - Python 3.10+
-- Docker Engine (optional, required for automated container provisioning)
+- Docker Engine (optional, required only for ephemeral container provisioning)
 
-### Setup Virtual Environment
+### Setup
 ```bash
 # Clone the repository
 git clone https://github.com/pr60t/firedamp.git
@@ -161,9 +158,9 @@ pip install -e ".[dev]"
 ### Running Tests
 Execute the deterministic test suite:
 ```bash
-pytest -v
-# or using standard library unittest:
 python3 -m unittest discover tests/ -v
+# or using pytest:
+pytest -v
 ```
 
 ---
@@ -172,28 +169,26 @@ python3 -m unittest discover tests/ -v
 
 ```text
 .
-├── core/                # Canary engine, reporter, and target managers
-│   ├── __init__.py
-│   ├── engine.py        # Canary generation & deterministic leak detection
+├── core/                # Canary generation, reporter & target lifecycle
+│   ├── engine.py        # Cryptographic canary engine & zero-VRAM matcher
 │   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
 │   └── target.py        # Docker SDK target orchestration & lifecycle
 ├── adapters/            # Target platform drivers
-│   ├── __init__.py      # Base TargetAdapter abstract protocol
-│   └── openwebui.py     # Open WebUI REST API driver
-├── tests/
-│   └── test_canary.py   # Unit, E2E mocked, and adapter contract tests
+│   ├── base.py          # TargetAdapter abstract protocol & registry
+│   └── openwebui/       # Modular Open WebUI driver (auth, ingest, query, lifecycle)
+├── probes/              # Decoupled behavioral regression suites
+│   ├── schemas/         # 8-Pillar BugClass & ProbeChannel taxonomies
+│   ├── cves/            # Tier-1 CVE fixtures (CVE-2026-44560, 45398, 28788, 54019)
+│   │   ├── cve_catalog.json # Machine-readable 21-CVE database
+│   │   └── CVE_CATALOG.md   # Attack strategy reference manual
+│   └── cve_registry.py  # Catalog loader and query engine
+├── tests/               # Test suites (unit, mock E2E, adapter contracts, CVE probes)
 ├── assets/              # Rendered terminal report vector SVGs
 ├── wiki/                # Documentation wiki pages & guides
-├── .agents/             # Agent rules and skills
-├── .github/             # GitHub Actions CI workflows
 ├── cli.py               # Typer / argparse CLI entrypoint
-├── install.sh           # Automated installer script
+├── install.sh           # Automated shell installer script
 ├── pyproject.toml       # PEP 621 package metadata & entrypoints
-├── requirements.txt     # Production dependencies
-├── requirements-dev.txt # Development & test dependencies
-├── firedamp_banner.svg  # Project banner asset
-├── firedamp_logo.svg    # Project logo asset
-├── LICENSE              # MIT license
+├── LICENSE              # MIT License
 └── README.md            # Project documentation & reference
 ```
 
@@ -202,4 +197,3 @@ python3 -m unittest discover tests/ -v
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-

@@ -34,7 +34,26 @@ firedamp scan \
 
 ---
 
-### Recipe 3: Continuous Integration in GitHub Actions (DevSecOps)
+### Recipe 3: Historical CVE Regression Probing
+**Scenario:** Verify that known authorization and boundary CVEs (such as predictable collection IDs, raw UUID bypasses, or cross-user write overwriting) are effectively patched on your target instance.
+
+```bash
+# Run only the Tier-1 CVE behavioral probes
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --suite cve-regression \
+  --output cve-report.json
+
+# Or run the full combined suite (prompts + CVE probes)
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --suite all \
+  --fail-on-leak
+```
+
+---
+
+### Recipe 4: Continuous Integration in GitHub Actions (DevSecOps)
 **Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
 
 Create `.github/workflows/audit.yml` in your repo:

@@ -70,6 +70,7 @@ class ProbeResult:
     retrieved_contexts: List[str]
     leaked_canaries: List[str]
     severity: LeakSeverity
+    channel: str = "llm_prompt"  # prompt, direct_api, lifecycle, enumeration, write_side
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @property
@@ -178,6 +179,7 @@ class ProbingEngine:
         planted_canaries: Optional[List[CanaryToken]] = None,
         raw_response: Optional[Dict[str, Any]] = None,
         probe_category: str = "unknown",
+        channel: str = "llm_prompt",
     ) -> ProbeResult:
         """
         Deterministically evaluates if any planted canaries leaked across the boundary.
@@ -213,6 +215,7 @@ class ProbingEngine:
             retrieved_contexts=retrieved_contexts,
             leaked_canaries=all_leaks,
             severity=severity,
+            channel=channel,
         )
 
     def _find_leaks(self, text: str, known_tokens: set[str]) -> set[str]:

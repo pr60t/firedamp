@@ -172,8 +172,10 @@ class TestCanaryEngine(unittest.TestCase):
         result = engine.evaluate_response(
             prompt="test", response_text="safe", planted_canaries=[canary],
             probe_category="prompt_injection",
+            channel="direct_api",
         )
         self.assertEqual(result.probe_category, "prompt_injection")
+        self.assertEqual(result.channel, "direct_api")
 
     def test_probe_strategies_are_categorized(self):
         """Verify all probe strategies have category and prompt fields."""

@@ -210,6 +210,7 @@ class FiredampReporter:
                 header_style="bold red"
             )
             leak_table.add_column("Breach Vector", style="yellow")
+            leak_table.add_column("Channel", style="cyan")
             leak_table.add_column("Probe Prompt", style="white")
             leak_table.add_column("Compromised Canary", style="bold red")
 
@@ -217,7 +218,8 @@ class FiredampReporter:
                 tokens = ", ".join(item.get("leaked_canaries", [])) or "Token extracted"
                 leak_table.add_row(
                     item.get("severity", "").upper(),
-                    item.get("probe_prompt", "")[:50] + "...",
+                    item.get("channel", "llm_prompt"),
+                    item.get("probe_prompt", "")[:45] + "...",
                     tokens
                 )
             self.console.print(leak_table)

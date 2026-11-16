@@ -3,6 +3,7 @@
 - [[Home]]
 - [[Quickstart]]
 - [[CLI-Reference|CLI Reference]]
+- [[CVE-Regression-Engine|CVE Regression Engine]]
 - [[Use-Cases-&-Recipes|Use Cases & Recipes]]
 - [[Understanding-Telemetry|Understanding Telemetry]]
 - [[Troubleshooting]]

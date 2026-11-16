@@ -21,6 +21,7 @@ In modern multi-tenant AI platforms (like Open WebUI), proprietary documents oft
 | :--- | :--- |
 | **[[Quickstart]]** | Install and run your first scan in under 60 seconds. |
 | **[[CLI-Reference\|CLI Reference]]** | Complete cheat sheet of flags, options, and commands. |
+| **[[CVE-Regression-Engine\|CVE Regression Engine]]** | Deep dive into the 8 bug classes, Tier-1 behavioral probes, and catalog. |
 | **[[Use-Cases-&-Recipes\|Use Cases & Recipes]]** | Ready-to-copy commands for Docker, staging servers, and CI/CD. |
 | **[[Understanding-Telemetry\|Understanding Telemetry]]** | How the Firedamp Index (0-100) works and what breach reports mean. |
 | **[[Troubleshooting]]** | Quick fixes for Docker permissions, timeouts, and baseline warnings. |
