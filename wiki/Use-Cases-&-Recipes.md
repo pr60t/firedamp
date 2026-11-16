@@ -103,7 +103,19 @@ firedamp scan \
 
 ---
 
-### Recipe 8: Continuous Integration in GitHub Actions (DevSecOps)
+### Recipe 8: Auditing Agent Memory Scratchpads & MCP Tool Caches
+**Scenario:** Probe long-term agent memory routes (`user-memory-*`, `/api/v1/memories/`) to verify users cannot dump another tenant's scratchpad, and execute identical tool actions across sessions to detect cross-tenant prompt cache bleed.
+
+```bash
+firedamp scan \
+  --target-url http://localhost:8080 \
+  --scenario agent-memory \
+  --output memory-audit.json
+```
+
+---
+
+### Recipe 9: Continuous Integration in GitHub Actions (DevSecOps)
 **Scenario:** You want every Pull Request or nightly build to verify that RAG permissions and vector database namespaces haven't broken.
 
 Create `.github/workflows/audit.yml` in your repo:

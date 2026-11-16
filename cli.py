@@ -300,6 +300,27 @@ def run_scan_flow(
                 else:
                     reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
 
+    # 3f. Scenario Vectors (Pillar 6: Agent, Memory & Tool Channels)
+    if scenario in ("agent-memory", "agent_memory") or suite in ("agent-memory", "all"):
+        from probes.scenarios.agent_memory import run_agent_memory_scenarios
+        with console.status("[bold cyan]Dispatching Agent, Memory & Tool Channel attack scenarios...", spinner="dots") as status:
+            agent_results = run_agent_memory_scenarios(
+                adapter=adapter,
+                base_url=env.base_url,
+                alice=alice_session,
+                bob=bob_session,
+                engine=engine,
+                dry_run=dry_run,
+            )
+            for res in agent_results:
+                probe_results.append(res)
+                if res.is_leak:
+                    reporter.log_alert(
+                        f"Memory breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+                else:
+                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+
     # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
         target_name=target,
@@ -406,8 +427,8 @@ try:
         fail_on_leak: bool = typer.Option(False, "--fail-on-leak", help="Exit code 1 if gas is detected."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run simulated scan without network/docker."),
         cpu_only: bool = typer.Option(False, "--cpu-only", help="Run container without GPU/Ollama (CPU embeddings only)."),
-        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'lifecycle', 'write-poisoning', 'all')."),
-        scenario: Optional[str] = typer.Option(None, "--scenario", "-sc", help="Targeted attack scenario to execute ('lifecycle', 'write-poisoning')."),
+        suite: str = typer.Option("default", "--suite", "-s", help="Probing suite to execute ('default', 'cve-regression', 'auth-matrix', 'lifecycle', 'write-poisoning', 'agent-memory', 'all')."),
+        scenario: Optional[str] = typer.Option(None, "--scenario", "-sc", help="Targeted attack scenario to execute ('lifecycle', 'write-poisoning', 'agent-memory')."),
         vector_db: str = typer.Option("chroma", "--vector-db", "-db", help="Target vector database backend ('chroma', 'milvus', 'qdrant')."),
         multitenancy: str = typer.Option("shared", "--multitenancy", "-m", help="Multitenancy architecture mode ('shared', 'isolated')."),
     ):
@@ -466,8 +487,8 @@ except ImportError:
         scan_parser.add_argument("--fail-on-leak", action="store_true", help="Exit code 1 if gas detected")
         scan_parser.add_argument("--dry-run", action="store_true", help="Run simulated scan without network/docker")
         scan_parser.add_argument("--cpu-only", action="store_true", help="Run container without GPU/Ollama (CPU embeddings only)")
-        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "lifecycle", "write-poisoning", "all"], help="Probing suite (default, cve-regression, auth-matrix, lifecycle, write-poisoning, all)")
-        scan_parser.add_argument("--scenario", "-sc", default=None, choices=["lifecycle", "write-poisoning"], help="Targeted attack scenario (lifecycle, write-poisoning)")
+        scan_parser.add_argument("--suite", "-s", default="default", choices=["default", "cve-regression", "auth-matrix", "lifecycle", "write-poisoning", "agent-memory", "all"], help="Probing suite (default, cve-regression, auth-matrix, lifecycle, write-poisoning, agent-memory, all)")
+        scan_parser.add_argument("--scenario", "-sc", default=None, choices=["lifecycle", "write-poisoning", "agent-memory"], help="Targeted attack scenario (lifecycle, write-poisoning, agent-memory)")
         scan_parser.add_argument("--vector-db", "-db", default="chroma", choices=["chroma", "milvus", "qdrant"], help="Vector database backend (chroma, milvus, qdrant)")
         scan_parser.add_argument("--multitenancy", "-m", default="shared", choices=["shared", "isolated"], help="Multitenancy mode (shared, isolated)")
 

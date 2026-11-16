@@ -95,6 +95,53 @@ class OpenWebUILifecycleMixin:
         )
         return link_res
 
+    def create_user_memory(
+        self,
+        base_url: str,
+        session: UserSession,
+        content: str,
+    ) -> Dict[str, Any]:
+        """Creates a persistent memory entry for the session in Open WebUI."""
+        base = base_url.rstrip("/")
+        return self._json_request(
+            f"{base}/api/v1/memories/add",
+            method="POST",
+            data={"content": content},
+            headers=session.headers,
+        )
+
+    def get_user_memories(
+        self,
+        base_url: str,
+        session: UserSession,
+        target_user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetches memory entries; probes specific user memory route if target_user_id provided."""
+        base = base_url.rstrip("/")
+        path = f"/api/v1/memories/{target_user_id}" if target_user_id else "/api/v1/memories/"
+        res = self._json_request(f"{base}{path}", method="GET", headers=session.headers)
+        if isinstance(res, list):
+            return res
+        if isinstance(res, dict) and "data" in res:
+            return res.get("data", [])
+        return []
+
+    def execute_tool_action(
+        self,
+        base_url: str,
+        session: UserSession,
+        tool_name: str,
+        tool_input: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Executes a tool call under session credentials."""
+        base = base_url.rstrip("/")
+        return self._json_request(
+            f"{base}/api/v1/tools/{tool_name}/execute",
+            method="POST",
+            data={"input": tool_input},
+            headers=session.headers,
+        )
+
     def enumerate_resources(
         self,
         base_url: str,

@@ -119,6 +119,43 @@ class TargetAdapter(ABC):
             payload=document.content,
         )
 
+    def create_user_memory(
+        self,
+        base_url: str,
+        session: UserSession,
+        content: str,
+    ) -> Dict[str, Any]:
+        """
+        Creates a persistent user memory / agent scratchpad entry.
+        Default implementation returns empty dict.
+        """
+        return {}
+
+    def get_user_memories(
+        self,
+        base_url: str,
+        session: UserSession,
+        target_user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves user memory / agent scratchpad entries.
+        Default implementation returns empty list.
+        """
+        return []
+
+    def execute_tool_action(
+        self,
+        base_url: str,
+        session: UserSession,
+        tool_name: str,
+        tool_input: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Executes an agent tool or MCP action under session credentials.
+        Default implementation returns empty dict.
+        """
+        return {}
+
     @abstractmethod
     def enumerate_resources(
         self,

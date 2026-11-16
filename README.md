@@ -43,6 +43,7 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
 - 🧭 **API Authorization Matrix (RAG Autorize)**: Automated request capture & replay testing across Owner, Intruder, Ex-Member, and Anonymous personas with structural diffing and canary detection (`--suite auth-matrix`).
 - ⚡ **Time & Sequence Lifecycle Probes**: Tests race conditions during concurrent revocation, post-revocation cache staleness, and delete-while-indexing orphan chunk leaks (`--scenario lifecycle`).
 - 💉 **Write-Side Poisoning Probes**: Verifies cross-tenant integrity by detecting if unauthorized injection or overwrites bleed into legitimate queries (`--scenario write-poisoning`).
+- 🧠 **Agent Memory & Tool Cache Probes**: Audits persistent agent memory routes (`user-memory-*`) and tests MCP/tool cache isolation to prevent cross-tenant semantic bleed (`--scenario agent-memory`).
 - ⚙️ **Configuration Matrix Testing**: Validates isolation boundaries across varying vector backends (`--vector-db chroma|milvus|qdrant`) and partitioning models (`--multitenancy shared|isolated`).
 - 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
 - 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
@@ -142,6 +143,12 @@ firedamp scan --target-url http://localhost:8080 --scenario lifecycle
 Verify whether unauthorized users can inject documents or overwrite resources in other tenants' scopes:
 ```bash
 firedamp scan --target-url http://localhost:8080 --scenario write-poisoning
+```
+
+### 🧠 Agent Memory & Tool Cache Scenarios
+Audit persistent user scratchpads and test for MCP tool semantic cache bleed:
+```bash
+firedamp scan --target-url http://localhost:8080 --scenario agent-memory
 ```
 
 ### ⚙️ Non-Default Vector Database Configurations
