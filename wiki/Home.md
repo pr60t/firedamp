@@ -26,7 +26,6 @@ In modern multi-tenant AI platforms (like Open WebUI), proprietary documents oft
 | **[[Use-Cases-&-Recipes\|Use Cases & Recipes]]** | Ready-to-copy commands for Docker, staging servers, and CI/CD. |
 | **[[Version-Ladder-Benchmark\|Version Ladder Benchmark]]** | Empirical CVE detection rate (100%) and zero-false-positive metrics across 5 Open WebUI releases. |
 | **[[Understanding-Telemetry\|Understanding Telemetry]]** | How the Firedamp Index (0-100) works and what breach reports mean. |
-| **[[Troubleshooting]]** | Quick fixes for Docker permissions, timeouts, and baseline warnings. |
 
 ---
 

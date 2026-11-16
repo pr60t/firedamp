@@ -8,7 +8,6 @@
 - [[Use-Cases-&-Recipes|Use Cases & Recipes]]
 - [[Version-Ladder-Benchmark|Version Ladder Benchmark]]
 - [[Understanding-Telemetry|Understanding Telemetry]]
-- [[Troubleshooting]]
 
 ---
 
