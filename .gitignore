@@ -46,3 +46,8 @@ htmlcov/
 
 # Graphify knowledge graph outputs and build caches
 graphify-out/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example

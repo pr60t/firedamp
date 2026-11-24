@@ -1,0 +1,63 @@
+name: firedamp-cve-28788-lab
+
+services:
+  owui-vulnerable:
+    image: ghcr.io/open-webui/open-webui:v0.8.5@sha256:6251d208f91373f755c6a42abdbf740d003775dcf2d78b8811a213a822e7350b
+    container_name: firedamp-owui-v085
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:13085:8080"
+    environment:
+      - WEBUI_AUTH=True
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY_V085:-firedamp-cve-28788-lab-secret-v085}
+      - ENABLE_SIGNUP=True
+      - DEFAULT_USER_ROLE=user
+      - RAG_EMBEDDING_ENGINE=
+      - RAG_EMBEDDING_MODEL=
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=False
+    volumes:
+      - owui_v085_data:/app/backend/data
+    networks:
+      - cve_lab_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+      start_period: 15s
+
+  owui-patched:
+    image: ghcr.io/open-webui/open-webui:v0.8.6@sha256:4938a90d0b0fb2a7c361a254211704fab72e748c4c7649e5729947fdc56d9dea
+    container_name: firedamp-owui-v086
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:13086:8080"
+    environment:
+      - WEBUI_AUTH=True
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY_V086:-firedamp-cve-28788-lab-secret-v086}
+      - ENABLE_SIGNUP=True
+      - DEFAULT_USER_ROLE=user
+      - RAG_EMBEDDING_ENGINE=
+      - RAG_EMBEDDING_MODEL=
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=False
+    volumes:
+      - owui_v086_data:/app/backend/data
+    networks:
+      - cve_lab_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+      start_period: 15s
+
+volumes:
+  owui_v085_data:
+    name: firedamp-owui-v085-data
+  owui_v086_data:
+    name: firedamp-owui-v086-data
+
+networks:
+  cve_lab_net:
+    name: firedamp-cve-lab-net
+    driver: bridge

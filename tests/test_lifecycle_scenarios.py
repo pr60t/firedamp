@@ -34,6 +34,9 @@ class MockLifecycleAdapter(TargetAdapter):
         self.leak_on_revoke = leak_on_revoke
         self.leak_on_delete = leak_on_delete
         self.canary_to_leak = None
+        self.ingest_calls = 0
+        self.cleanup_calls = 0
+        self.query_direct_calls = []
 
     def authenticate_user(self, base_url, username, password, role="user"):
         return UserSession(
@@ -43,6 +46,7 @@ class MockLifecycleAdapter(TargetAdapter):
         )
 
     def ingest_document(self, base_url, session, document):
+        self.ingest_calls += 1
         if document.canaries:
             self.canary_to_leak = document.canaries[0].token
         return "mock-doc-ref"
@@ -53,6 +57,7 @@ class MockLifecycleAdapter(TargetAdapter):
         return ("No relevant documents found.", [], {})
 
     def query_resource_direct(self, base_url, session, resource_ref, k=50):
+        self.query_direct_calls.append(resource_ref)
         if self.leak_on_revoke and self.canary_to_leak:
             return (f"Stale grant accessible: {self.canary_to_leak}", [self.canary_to_leak], {})
         return ("403 Forbidden: Resource access denied.", [], {"code": 403})
@@ -72,6 +77,7 @@ class MockLifecycleAdapter(TargetAdapter):
         return {"status": True}
 
     def cleanup(self, base_url, session):
+        self.cleanup_calls += 1
         self.deleted_resources.add(session.username)
 
 
@@ -101,8 +107,8 @@ class TestLifecycleScenarios(unittest.TestCase):
         self.assertFalse(res.is_leak)
         self.assertEqual(res.channel, "lifecycle_event")
 
-    def test_revocation_in_flight_live_clean(self):
-        """Verify live execution of revocation-in-flight when platform properly denies access."""
+    def test_revocation_in_flight_mocked_clean(self):
+        """Verify simulated execution of revocation-in-flight when platform properly denies access."""
         adapter = MockLifecycleAdapter(leak_on_revoke=False)
         adapter.canary_to_leak = self.canary.token
         res = test_revocation_in_flight(
@@ -184,9 +190,12 @@ class TestLifecycleScenarios(unittest.TestCase):
         )
         self.assertEqual(res.probe_category, "scenario:lifecycle:delete_while_indexing")
         self.assertFalse(res.is_leak)
+        self.assertIn("DRY RUN", res.target_response)
+        self.assertEqual(adapter.ingest_calls, 0)
+        self.assertEqual(adapter.cleanup_calls, 0)
 
-    def test_delete_while_indexing_leak_detected(self):
-        """Verify delete-while-indexing catches orphan chunks leaked to global pool."""
+    def test_delete_while_indexing_live_mode_fails_inconclusive_without_mutation(self):
+        """The probe must not ingest and invoke broad cleanup without a cancellable task handle."""
         adapter = MockLifecycleAdapter(leak_on_delete=True)
         res = test_delete_while_indexing(
             adapter=adapter,
@@ -197,8 +206,14 @@ class TestLifecycleScenarios(unittest.TestCase):
             engine=self.engine,
             dry_run=False,
         )
-        self.assertTrue(res.is_leak)
-        self.assertEqual(res.severity, LeakSeverity.DIRECT_LEAK)
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertIs(res.inconclusive, True)
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertIn("INCONCLUSIVE", res.target_response)
+        self.assertEqual(adapter.ingest_calls, 0)
+        self.assertEqual(adapter.cleanup_calls, 0)
 
     def test_run_lifecycle_scenarios_suite(self):
         """Verify running all 3 lifecycle scenarios in sequence."""
@@ -220,6 +235,100 @@ class TestLifecycleScenarios(unittest.TestCase):
         for r in results:
             self.assertEqual(r.channel, "lifecycle_event")
             self.assertFalse(r.is_leak)
+
+    def test_revocation_in_flight_missing_kb_id_returns_inconclusive(self):
+        """Revocation in flight must return INCONCLUSIVE without dispatching adapter calls when KB ID is missing."""
+        alice_no_kb = UserSession("alice", "owner", metadata={})
+        adapter = MockLifecycleAdapter(leak_on_revoke=True)
+        res = test_revocation_in_flight(
+            adapter=adapter,
+            base_url="http://mock",
+            alice=alice_no_kb,
+            bob=self.bob,
+            planted_canaries=[self.canary],
+            engine=self.engine,
+            dry_run=False,
+        )
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertIs(res.inconclusive, True)
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertIn("INCONCLUSIVE", res.target_response)
+        self.assertEqual(len(adapter.shared_resources), 0)
+        self.assertEqual(len(adapter.revoked_resources), 0)
+        self.assertEqual(len(adapter.query_direct_calls), 0)
+
+    def test_revocation_in_flight_blank_or_file_only_returns_inconclusive(self):
+        """Revocation in flight must not substitute a file ID or blank string for a knowledge base ID."""
+        alice_file_only = UserSession("alice", "owner", metadata={"knowledge_ids": ["  ", ""], "file_ids": ["file-999"]})
+        adapter = MockLifecycleAdapter(leak_on_revoke=True)
+        res = test_revocation_in_flight(
+            adapter=adapter,
+            base_url="http://mock",
+            alice=alice_file_only,
+            bob=self.bob,
+            planted_canaries=[self.canary],
+            engine=self.engine,
+            dry_run=False,
+        )
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertIs(res.inconclusive, True)
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertIn("INCONCLUSIVE", res.target_response)
+        self.assertEqual(len(adapter.shared_resources), 0)
+        self.assertEqual(len(adapter.revoked_resources), 0)
+        self.assertEqual(len(adapter.query_direct_calls), 0)
+
+    def test_post_revocation_staleness_missing_kb_id_returns_inconclusive(self):
+        """Post-revocation staleness must return INCONCLUSIVE without dispatching adapter calls when KB ID is missing."""
+        alice_no_kb = UserSession("alice", "owner", metadata={})
+        adapter = MockLifecycleAdapter(leak_on_revoke=True)
+        res = test_post_revocation_staleness(
+            adapter=adapter,
+            base_url="http://mock",
+            alice=alice_no_kb,
+            bob=self.bob,
+            planted_canaries=[self.canary],
+            engine=self.engine,
+            delay_seconds=0.0,
+            dry_run=False,
+        )
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertIs(res.inconclusive, True)
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertIn("INCONCLUSIVE", res.target_response)
+        self.assertEqual(len(adapter.shared_resources), 0)
+        self.assertEqual(len(adapter.revoked_resources), 0)
+        self.assertEqual(len(adapter.query_direct_calls), 0)
+
+    def test_post_revocation_staleness_blank_or_file_only_returns_inconclusive(self):
+        """Post-revocation staleness must not substitute a file ID or blank string for a knowledge base ID."""
+        alice_file_only = UserSession("alice", "owner", metadata={"knowledge_ids": [], "file_ids": ["file-999"]})
+        adapter = MockLifecycleAdapter(leak_on_revoke=True)
+        res = test_post_revocation_staleness(
+            adapter=adapter,
+            base_url="http://mock",
+            alice=alice_file_only,
+            bob=self.bob,
+            planted_canaries=[self.canary],
+            engine=self.engine,
+            delay_seconds=0.0,
+            dry_run=False,
+        )
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertIs(res.inconclusive, True)
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertIn("INCONCLUSIVE", res.target_response)
+        self.assertEqual(len(adapter.shared_resources), 0)
+        self.assertEqual(len(adapter.revoked_resources), 0)
+        self.assertEqual(len(adapter.query_direct_calls), 0)
 
 
 if __name__ == "__main__":

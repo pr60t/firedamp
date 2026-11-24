@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import sys
 import os
+import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
 
 # Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -19,13 +20,285 @@ if str(PROJECT_ROOT) not in sys.path:
 from rich.console import Console
 from rich.table import Table
 
-from core.engine import ProbingEngine, CanaryToken
+from core.engine import ProbingEngine, CanaryToken, DecoyDocument
 from core.target import RemoteTargetManager, DockerTargetManager, TargetEnvironment
 from core.reporter import FiredampReporter, AuditSummary
 from adapters import get_adapter
+from adapters.base import TargetAdapter, UserSession
 
 console = Console()
 reporter = FiredampReporter(console=console)
+
+
+def _register_newly_seeded_disposables(
+    adapter: TargetAdapter,
+    base_url: str,
+    session: UserSession,
+    previous_file_ids: List[str],
+    run_id: str,
+) -> List[str]:
+    """Register only files newly created by this scan after independent verification.
+
+    IDs that fail any check remain in ``file_ids`` for read-side visibility, but
+    are not added to ``disposable_file_ids`` and are never eligible for destructive
+    probes or generic destructive cleanup.
+    """
+    from probes.disposable_registry import _TRUSTED_SCAN_REGISTRY
+    from probes.knowledge_membership import resolve_file_knowledge_base
+
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    file_ids = metadata.get("file_ids")
+    if not isinstance(file_ids, list):
+        return []
+    previous = set(previous_file_ids)
+    new_ids = [item for item in file_ids if isinstance(item, str) and item.strip() and item not in previous]
+    expected_user_id = metadata.get("user_id")
+    try:
+        authenticated_user_id = adapter.get_authenticated_user_id(base_url, session)
+    except Exception:
+        authenticated_user_id = None
+    if not isinstance(expected_user_id, str) or not expected_user_id.strip() or authenticated_user_id != expected_user_id:
+        reporter.log_alert("Cannot register scan-created files as disposable: Alice identity was not independently verified.")
+        return []
+
+    metadata.setdefault("disposable_file_ids", [])
+    registered: List[str] = []
+    for file_id in new_ids:
+        try:
+            file_meta = adapter.get_file_metadata(base_url, session, file_id)
+            if (
+                not isinstance(file_meta, dict)
+                or file_meta.get("id") != file_id
+                or file_meta.get("user_id") != expected_user_id
+            ):
+                continue
+            baseline = adapter.read_file_content(base_url, session, file_id)
+            if not isinstance(baseline, str):
+                continue
+            target_kb, resolution_error = resolve_file_knowledge_base(
+                adapter=adapter,
+                base_url=base_url,
+                session=session,
+                target_file_id=file_id,
+            )
+            if not target_kb:
+                reporter.log_alert(f"New scan file {file_id} was not registered disposable: exact KB membership failed: {resolution_error}")
+                continue
+            baseline_sha256 = hashlib.sha256(baseline.encode("utf-8")).hexdigest()
+            _TRUSTED_SCAN_REGISTRY.register(
+                run_id=run_id,
+                resource_id=file_id,
+                owner=session.username,
+                metadata={
+                    "source": "current-scan-ingestion",
+                    "owner_user_id": expected_user_id,
+                    "knowledge_base_id": target_kb,
+                    "baseline_sha256": baseline_sha256,
+                    "baseline_length": len(baseline),
+                },
+            )
+            metadata["disposable_file_ids"].append(file_id)
+            # Keep the ID in file_ids for read-side probes. The immutable-at-seed
+            # ordinary_file_ids snapshot distinguishes pre-existing resources from
+            # files provisioned and registered by this scan.
+            registered.append(file_id)
+        except Exception as exc:
+            reporter.log_alert(f"Could not register newly seeded file {file_id} as disposable: {exc}")
+    return registered
+
+
+def _cleanup_scan_disposables(adapter: TargetAdapter, base_url: str, session: UserSession, run_id: str) -> None:
+    """Delete only current-run registered disposable files after rechecking ownership."""
+    from probes.disposable_registry import _TRUSTED_SCAN_REGISTRY
+
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    disposable_ids = metadata.get("disposable_file_ids", [])
+    expected_owner = metadata.get("user_id")
+    if not isinstance(disposable_ids, list):
+        return
+    retained: List[str] = []
+    for file_id in disposable_ids:
+        if not isinstance(file_id, str) or not file_id.strip():
+            continue
+        file_id = file_id.strip()
+        if _TRUSTED_SCAN_REGISTRY.is_cleaned_up(run_id, file_id, session.username):
+            metadata["file_ids"] = [item for item in metadata.get("file_ids", []) if item != file_id]
+            continue
+        if not _TRUSTED_SCAN_REGISTRY.is_registered(run_id, file_id, session.username):
+            reporter.log_alert(f"Disposable cleanup skipped for {file_id}: no current-run trusted registration.")
+            retained.append(file_id)
+            continue
+        try:
+            auth_id = adapter.get_authenticated_user_id(base_url, session)
+            file_meta = adapter.get_file_metadata(base_url, session, file_id)
+            if (
+                auth_id != expected_owner
+                or not isinstance(file_meta, dict)
+                or file_meta.get("id") != file_id
+                or file_meta.get("user_id") != expected_owner
+            ):
+                reporter.log_alert(f"Disposable cleanup skipped for {file_id}: server-side ownership could not be reverified.")
+                retained.append(file_id)
+                continue
+            if adapter.delete_file(base_url, session, file_id):
+                _TRUSTED_SCAN_REGISTRY.mark_cleaned_up(run_id, file_id)
+                metadata["file_ids"] = [item for item in metadata.get("file_ids", []) if item != file_id]
+                reporter.log_success(f"Deleted scan-created disposable file {file_id}.")
+            else:
+                reporter.log_alert(f"Disposable cleanup failed for {file_id}; resource remains registered for review.")
+                retained.append(file_id)
+        except Exception as exc:
+            reporter.log_alert(f"Disposable cleanup failed for {file_id}: {exc}")
+            retained.append(file_id)
+    metadata["disposable_file_ids"] = retained
+    # Never pass any disposable ID (including one whose cleanup failed) into the
+    # adapter's generic cleanup loop. That loop is not an ownership-verification
+    # boundary and must not become a fallback deletion path.
+    all_disposable_ids = set(item for item in disposable_ids if isinstance(item, str))
+    ordinary_ids = metadata.get("file_ids", [])
+    if isinstance(ordinary_ids, list):
+        metadata["file_ids"] = [item for item in ordinary_ids if item not in all_disposable_ids]
+
+
+class SimulatedCLIAdapter(TargetAdapter):
+    """
+    In-memory simulated adapter used during CLI --dry-run scans.
+    Provides synthetic server-side identities and safe responses without network or docker.
+    """
+
+    target_name = "simulated"
+
+    def authenticate_user(self, base_url: str, username: str, password: str, role: str = "user") -> UserSession:
+        user_id = f"sim-{username}-user-id"
+        return UserSession(
+            username=username,
+            role=role,
+            token=f"simulated-{username}-token",
+            metadata={"user_id": user_id, "file_ids": [], "knowledge_ids": []},
+        )
+
+    def get_authenticated_user_id(self, base_url: str, session: UserSession) -> Optional[str]:
+        if not session or not session.token:
+            return None
+        if isinstance(session.metadata, dict):
+            return session.metadata.get("user_id")
+        return None
+
+    def validate_session(self, base_url: str, session: UserSession) -> bool:
+        return bool(session and session.token)
+
+    def get_file_metadata(self, base_url: str, session: UserSession, file_id: str) -> Optional[Dict[str, Any]]:
+        user_id = session.metadata.get("user_id") if isinstance(session.metadata, dict) else session.username
+        return {"id": file_id, "user_id": user_id, "owner": session.username}
+
+    def read_file_content(self, base_url: str, session: UserSession, file_id: str) -> Optional[str]:
+        return "Simulated clean baseline file content."
+
+    def delete_file(self, base_url: str, session: UserSession, file_id: str) -> bool:
+        return True
+
+    def ingest_document(self, base_url: str, session: UserSession, document: DecoyDocument) -> str:
+        return "sim-doc-id-1"
+
+    def query_rag(
+        self,
+        base_url: str,
+        session: UserSession,
+        prompt: str,
+        files: Optional[List[Dict[str, str]]] = None,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        return ("I do not have access to any documents matching that query.", [], {})
+
+    def query_resource_direct(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_ref: str,
+        k: int = 50,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        return ("Access denied", [], {"code": 403})
+
+    def query_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_names: List[str],
+        query: str = "anything",
+        k: int = 10,
+        hybrid: bool = False,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        return ("Access denied", [], {"code": 403})
+
+    def query_doc(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_name: str,
+        query: str = "anything",
+        k: int = 10,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        return ("Access denied", [], {"code": 403})
+
+    def overwrite_resource(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_ref: str,
+        payload: str,
+        collection_name: Optional[str] = None,
+        file_model: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        return {
+            "results": [],
+            "errors": [
+                {
+                    "file_id": resource_ref,
+                    "status": "failed",
+                    "error": "Permission denied: not file owner",
+                }
+            ],
+        }
+
+    def inject_into_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_name: str,
+        payload: str,
+    ) -> Dict[str, Any]:
+        return {"error": "Unauthorized", "code": 403}
+
+    def share_resource(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_id: str,
+        grantee_email: str,
+    ) -> bool:
+        return True
+
+    def revoke_resource(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_id: str,
+        grantee_email: str,
+    ) -> bool:
+        return True
+
+    def enumerate_resources(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_type: str = "file",
+    ) -> List[str]:
+        if isinstance(session.metadata, dict):
+            return list(session.metadata.get("file_ids", []))
+        return []
+
+    def cleanup(self, base_url: str, session: UserSession) -> None:
+        pass
 
 
 def run_scan_flow(
@@ -95,7 +368,9 @@ def run_scan_flow(
         reporter.log_success(f"Target airway online at [bold]{env.base_url}[/bold]")
 
     # Step 2: Canary Cage Seeding (Alice)
-    engine = ProbingEngine()
+    import uuid
+    scan_run_id = f"scan-{uuid.uuid4()}"
+    engine = ProbingEngine(run_id=scan_run_id)
     decoys = engine.generate_decoys(count=canaries, owner="Alice")
     planted_tokens = [c for d in decoys for c in d.canaries]
 
@@ -103,11 +378,14 @@ def run_scan_flow(
         f"[bold cyan]Synthesizing {len(planted_tokens)} verifiable canaries across {len(decoys)} decoy records...",
         spinner="dots"
     ) as status:
-        try:
-            adapter = get_adapter(target)
-        except Exception:
-            from adapters.openwebui import OpenWebUIAdapter
-            adapter = OpenWebUIAdapter()
+        if dry_run:
+            adapter = SimulatedCLIAdapter()
+        else:
+            try:
+                adapter = get_adapter(target)
+            except Exception:
+                from adapters.openwebui import OpenWebUIAdapter
+                adapter = OpenWebUIAdapter()
 
         if not dry_run:
             status.update("[bold cyan]Authorizing Alice session & seeding canary cages in private tenant scope...")
@@ -117,15 +395,30 @@ def run_scan_flow(
                 password="AegisPassword!123",
                 role="owner"
             )
+            alice_session.metadata["run_id"] = scan_run_id
+            alice_session.metadata.setdefault("disposable_file_ids", [])
+            alice_session.metadata["ordinary_file_ids"] = list(alice_session.metadata.get("file_ids", []))
             for doc in decoys:
+                before_file_ids = list(alice_session.metadata.get("file_ids", []))
                 adapter.ingest_document(env.base_url, alice_session, doc)
+                _register_newly_seeded_disposables(
+                    adapter=adapter,
+                    base_url=env.base_url,
+                    session=alice_session,
+                    previous_file_ids=before_file_ids,
+                    run_id=scan_run_id,
+                )
         else:
-            from adapters.base import UserSession
             alice_session = UserSession(
                 username="alice_owner",
                 role="owner",
                 token="simulated-alice-token",
-                metadata={"file_ids": ["sim-file-1"], "knowledge_ids": ["sim-kb-uuid-1"]},
+                metadata={
+                    "run_id": scan_run_id,
+                    "user_id": "sim-alice-user-id",
+                    "file_ids": ["sim-file-1"],
+                    "knowledge_ids": ["sim-kb-uuid-1"],
+                },
             )
 
     reporter.log_success(
@@ -164,13 +457,24 @@ def run_scan_flow(
             password="BobPassword!456",
             role="attacker"
         )
+        if not isinstance(bob_session.metadata, dict):
+            bob_session.metadata = {}
+        bob_session.metadata["run_id"] = scan_run_id
+        bob_session.metadata.setdefault("disposable_file_ids", [])
+        bob_session.metadata["ordinary_file_ids"] = list(bob_session.metadata.get("file_ids", []))
     else:
-        from adapters.base import UserSession
         bob_session = UserSession(
             username="bob_attacker",
             role="attacker",
             token="simulated-bob-token",
-            metadata={"file_ids": [], "knowledge_ids": []},
+            metadata={
+                "run_id": scan_run_id,
+                "user_id": "sim-bob-user-id",
+                "file_ids": [],
+                "ordinary_file_ids": [],
+                "disposable_file_ids": [],
+                "knowledge_ids": [],
+            },
         )
 
     probe_results = []
@@ -226,6 +530,10 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"CVE Breach detected ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_inconclusive:
+                    reporter.log_active(
+                        f"Inconclusive CVE probe: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 else:
                     reporter.log_success(f"Passed CVE probe: [dim]{res.probe_category}[/dim]")
 
@@ -277,6 +585,10 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"Lifecycle breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_inconclusive:
+                    reporter.log_active(
+                        f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 else:
                     reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
 
@@ -298,6 +610,10 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"Poison breach ({res.probe_category})! Injected tracer compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_inconclusive:
+                    reporter.log_active(
+                        f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 else:
                     reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
 
@@ -318,6 +634,10 @@ def run_scan_flow(
                 if res.is_leak:
                     reporter.log_alert(
                         f"Memory breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
+                    )
+                elif res.is_inconclusive:
+                    reporter.log_active(
+                        f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
                     )
                 else:
                     reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
@@ -365,8 +685,13 @@ def run_scan_flow(
     # Cleanup test artifacts from the target platform
     if not dry_run:
         with console.status("[bold cyan]Cleaning up canary documents and test artifacts...", spinner="dots"):
+            _cleanup_scan_disposables(adapter, env.base_url, alice_session, scan_run_id)
             adapter.cleanup(env.base_url, alice_session)
-        reporter.log_success("Test artifacts removed from target.")
+            _cleanup_scan_disposables(adapter, env.base_url, bob_session, scan_run_id)
+            adapter.cleanup(env.base_url, bob_session)
+            from probes.disposable_registry import clear_trusted_registry
+            clear_trusted_registry()
+        reporter.log_success("Scan cleanup routine completed; any ownership/cleanup failures were reported above.")
 
     # Teardown if managed by Docker
     if env.managed_by_docker:

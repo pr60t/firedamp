@@ -1,4 +1,5 @@
-# Firedamp Multi-Tenant RAG CVE & Attack Strategy Catalog
+# Firedamp Multi-Tenant RAG CVE & Threat Taxonomy Catalog
+**Forensic Audit Edition (v0.2.0)**
 
 This document is the authoritative technical reference for all vulnerability classes, attack strategies, and defensive verification probes curated into Firedamp.
 
@@ -9,250 +10,159 @@ This document is the authoritative technical reference for all vulnerability cla
 Unlike general LLM red-teaming frameworks (such as Garak, PyRIT, or Promptfoo) that focus broadly on jailbreaks, toxic speech, and prompt injections, **Firedamp is purposefully dedicated to Tenant Isolation, Boundary Enforcement, and Authorization in RAG & AI Systems**.
 
 In multi-tenant architectures, authorization failures allow one user (or tenant) to read, manipulate, or delete another tenant's indexed knowledge, embeddings, memory, or completions. Firedamp stores each vulnerability as a **deterministic behavioral regression probe (Canary In $\rightarrow$ Canary Out)**:
-- **No weaponized exploits:** Probes only check for authorization boundaries using synthetic cryptographic canary tokens.
+- **Zero weaponized exploits:** Probes only check for authorization boundaries using synthetic cryptographic canary tokens.
 - **Zero false positives via exact token matching:** We evaluate exact matches against cryptographically signed tokens (`CANARY-FRDP-...`).
 - **Zero GPU VRAM:** Operates deterministically without requiring expensive LLM-as-a-judge evaluators.
 
 ---
 
-## 🔬 The 8 Canonical Bug Classes & Attack Strategies
+## 🔬 Rigorous Status Taxonomy: References vs. Probes
 
-Every curated CVE belongs to one of 8 structural bug classes:
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                   FIREDAMP 8-PILLAR BUG TAXONOMY                       │
-├──────────────────────────┬─────────────────────────────────────────────┤
-│ 1. IDOR / Route Auth     │ Missing authorization on REST/RPC endpoints │
-│ 2. Role / Level Bypass   │ UUID / Prefix validation flaws and ACL gaps │
-│ 3. Revocation Staleness  │ Stale grants, cached tokens, lingering data │
-│ 4. Vector Store Inject   │ Filter / boolean injection in vector DB     │
-│ 5. Shared Store Scoping  │ Partition / tenant scoping failure in DB    │
-│ 6. Cross-Tenant Memory   │ Semantic cache / agent scratchpad leakage   │
-│ 7. Indirect Channels     │ Citations, link forgery, tool output bleed  │
-│ 8. Write-Side Poisoning  │ Cross-tenant ingestion / file overwrites    │
-└──────────────────────────┴─────────────────────────────────────────────┘
-```
+To maintain absolute credibility and trustworthiness, Firedamp explicitly delineates between:
+1. **Implemented Probes (`implemented`)**: Executable Python probe modules exist in the codebase and are integrated into automated test suites and simulation benchmarks.
+2. **Documented Vulnerabilities (`documented`)**: Real, authoritative CVEs verified against official CVE.org and NVD records that document known RAG/AI authorization vulnerabilities, but for which no executable probe script has yet been authored.
+3. **Quarantined / Misattributed (`rejected`)**: Records from legacy catalogues that were incorrectly attributed to AI/RAG software (e.g. associating an enterprise SD-WAN or PHP CMS vulnerability with a vector database). These are retained in the forensic register to preserve audit traceability but are excluded from active scanning.
 
 ---
 
-## 📋 Comprehensive Curated Vulnerability Register
+## 📋 Comprehensive 21-CVE Forensic Audit Register
 
-### Class 1: Missing Authorization on Route (IDOR / BOLA)
-
-#### 1. CVE-2026-44560: Direct Collection Vector Retrieval Bypass
-- **Target:** Open WebUI `< 0.9.0`
-- **CWE:** CWE-862 (Missing Authorization)
-- **Mechanism:** In earlier versions, 3 of 5 code paths resolving file and knowledge-base references into vector queries ran without verifying ownership, relying on predictable collection names like `file-<id>`.
-- **Attack Strategy:** Bob sends a raw vector query directly specifying Alice's `file-<id>` collection name in the payload.
-- **Firedamp Defense Probe:** Alice seeds a private document containing a canary. Bob executes `query_resource_direct(BobSession, "file-" + alice_file_id)`. Firedamp asserts HTTP 403/404 and zero canaries returned.
-- **Remediation:** Enforce ownership checks on all vector retrieval resolution controllers before issuing vector similarity queries.
-
-#### 2. CVE-2026-45301: Broken Access Control on Files API
-- **Target:** Open WebUI `< 0.9.1`
-- **CWE:** CWE-639 (Authorization Bypass Through User-Controlled Key)
-- **Mechanism:** The REST endpoints `/api/v1/files/{id}` and `/api/v1/files/` lacked ownership filters, allowing any authenticated user to view metadata, download content, or issue DELETE requests.
-- **Attack Strategy:** Bob iterates file IDs and reads or deletes Alice's private uploaded documents.
-- **Firedamp Defense Probe:** Bob calls `GET /api/v1/files/{alice_file_id}` and `DELETE /api/v1/files/{alice_file_id}`. Firedamp asserts HTTP 403 Forbidden.
-- **Remediation:** Add `WHERE user_id = :current_user` to all file database operations.
-
-#### 3. CVE-2026-44557: Global Knowledge Base Meta-Collection Enumeration
-- **Target:** Open WebUI `< 0.9.2`
-- **CWE:** CWE-200 (Information Exposure)
-- **Mechanism:** A system-level meta-collection endpoint exposed the catalog of all existing knowledge bases, their names, and owner UUIDs.
-- **Attack Strategy:** Bob dumps the catalog to discover targets for targeted exfiltration.
-- **Firedamp Defense Probe:** Bob queries the meta-collection endpoint. Firedamp asserts that Alice's private knowledge collections are omitted from the response.
-
-#### 4. CVE-2026-54016: Cross-Tenant File Enumeration via `search_knowledge_files`
-- **Target:** Open WebUI `< 0.9.4`
-- **CWE:** CWE-200 (Information Exposure)
-- **Mechanism:** The `search_knowledge_files` endpoint executed search queries against files without scoping results to collections owned by or shared with the caller.
-- **Attack Strategy:** Bob searches with empty or wildcard queries (`*`) to enumerate all files uploaded across the instance.
-- **Firedamp Defense Probe:** Bob invokes `search_knowledge_files` with wildcard queries; Firedamp verifies that only Bob's files are returned.
-
-#### 5. CVE-2026-45349: Completions API Unchecked RAG Contexts
-- **Target:** Open WebUI `< 0.9.4`
-- **CWE:** CWE-862 (Missing Authorization)
-- **Mechanism:** The chat completions endpoint accepted arbitrary collection IDs in the `rag_context` parameters without validating if the caller had read access to them.
-- **Attack Strategy:** Bob sends a chat completion specifying Alice's collection ID in the request body.
-- **Firedamp Defense Probe:** Bob sends a completion request referencing Alice's collection. Firedamp inspects both the generated stream and context chunks for canaries.
-
-#### 6. CVE-2024-52306: Flowise Unauthenticated Chatflow Execution
-- **Target:** Flowise `< 2.1.2`
-- **CWE:** CWE-862 (Missing Authorization)
-- **Mechanism:** Prediction endpoints `/api/v1/prediction/{id}` were callable without an API key or session token.
-- **Attack Strategy:** An external attacker directly triggers execution of private RAG pipelines and captures retrieved context.
-- **Firedamp Defense Probe:** An unauthenticated session issues POST to `/api/v1/prediction/{id}`; Firedamp asserts HTTP 401 Unauthorized.
-
-#### 7. CVE-2024-41133: Langflow Unauthenticated Flow Execution
-- **Target:** Langflow `< 1.0.12`
-- **CWE:** CWE-862 (Missing Authorization)
-- **Mechanism:** Unauthenticated HTTP requests to `/api/v1/process/{flow_id}` allowed running flows connected to vector stores.
-- **Attack Strategy:** Remote unauthenticated users query internal knowledge stores.
-- **Firedamp Defense Probe:** Unauthenticated request to `/api/v1/process/{flow_id}`; Firedamp asserts HTTP 401.
-
-#### 8. CVE-2024-52308: Dify Dataset Permission Bypass
-- **Target:** Dify `< 0.6.12`
-- **CWE:** CWE-862 (Missing Authorization)
-- **Mechanism:** The `/console/api/datasets/{id}/hit-testing` endpoint permitted users outside the target workspace to run similarity searches.
-- **Attack Strategy:** Bob runs hit-testing queries against Alice's private dataset ID.
-- **Firedamp Defense Probe:** Bob attempts hit-testing on Alice's dataset; Firedamp asserts HTTP 403 Forbidden.
-
-#### 9. CVE-2024-45388: Dify Cross-Tenant Dataset File Export via IDOR
-- **Target:** Dify `< 0.6.14`
-- **CWE:** CWE-639 (IDOR)
-- **Mechanism:** File download/export endpoints lacked workspace boundary validation.
-- **Attack Strategy:** Bob passes Alice's document ID into file export routes to download raw training documents.
-- **Firedamp Defense Probe:** Bob attempts downloading Alice's document; Firedamp asserts HTTP 403.
+| # | CVE ID | Official Advisory / GHSA | Vendor / Product | Authoritative Title & Bug Class | Affected / Fixed | Probe Status | Advisory Verification | Live Validation |
+|---|---|---|---|---|---|---|---|---|
+| 1 | **CVE-2026-44560** | [GHSA-h36f-rqpx-j5wx](https://github.com/open-webui/open-webui/security/advisories/GHSA-h36f-rqpx-j5wx) | Open WebUI | Direct Collection Vector Retrieval Authorization Bypass (CWE-862 [NVD/Aggregated; Unassigned in GHSA]) | `<= 0.8.12` / `>= 0.9.0` | `implemented` | **VERIFIED** | **NOT TESTED** (Simulation Only) |
+| 2 | **CVE-2026-45398** | [GHSA-4g37-7p2c-38r9](https://github.com/open-webui/open-webui/security/advisories/GHSA-4g37-7p2c-38r9) | Open WebUI | Knowledge Base Raw UUID Prefix Validation Bypass (CWE-639) [Read-Side Scope] | `<= 0.9.4` / `0.9.5` | `implemented` | **VERIFIED** | **NOT TESTED** (Simulation Only) |
+| 3 | **CVE-2026-28788** | [GHSA-jjp7-g2jw-wh3j](https://github.com/open-webui/open-webui/security/advisories/GHSA-jjp7-g2jw-wh3j) | Open WebUI | Cross-User Ingestion Overwrite via retrieval process_files_batch (CWE-639) | `< 0.8.6` / `0.8.6` | `implemented` | **VERIFIED** | **NOT TESTED** (Simulation Only) |
+| 4 | **CVE-2026-54019** | [GHSA-p5cp-r7rg-qpxc](https://github.com/open-webui/open-webui/security/advisories/GHSA-p5cp-r7rg-qpxc) | Open WebUI | Milvus filter-expression injection / RAG tenant-isolation bypass (CWE-862 & CWE-943) | `< 0.9.6` / `0.9.6` | `implemented` | **VERIFIED** | **NOT TESTED** (Simulation Only) |
+| 5 | **CVE-2026-45301** | [GHSA-r8wh-8m7r-fh33](https://github.com/open-webui/open-webui/security/advisories/GHSA-r8wh-8m7r-fh33) | Open WebUI | Broken Object Level Authorization on Files API (CWE-284) | `< 0.3.16` / `0.3.16` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 6 | **CVE-2026-44557** | [GHSA-6c2x-gcp3-gp73](https://github.com/open-webui/open-webui/security/advisories/GHSA-6c2x-gcp3-gp73) | Open WebUI | Global Knowledge Base Enumeration via Meta-Collection (CWE-200 / CWE-862 / CWE-863) | `< 0.9.0` / `0.9.0` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 7 | **CVE-2026-54016** | [GHSA-cx9v-4qj2-jrw6](https://github.com/open-webui/open-webui/security/advisories/GHSA-cx9v-4qj2-jrw6) | Open WebUI | Cross-Tenant File Enumeration via search_knowledge_files Tool (CWE-639 / CWE-862) | `< 0.9.6` / `0.9.6` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 8 | **CVE-2026-54010** | [GHSA-vrhc-3fr6-pc3c](https://github.com/open-webui/open-webui/security/advisories/GHSA-vrhc-3fr6-pc3c) | Open WebUI | Forged Chat-File Association Privilege Escalation and Deletion (CWE-284 / CWE-639 / CWE-862) | `< 0.9.6` / `0.9.6` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 9 | **CVE-2026-45349** | [GHSA-gfm2-xm6c-37qc](https://github.com/open-webui/open-webui/security/advisories/GHSA-gfm2-xm6c-37qc) | Open WebUI | Chat Completions API Improper Authorization Exposing Other Chats (CWE-639) [Requires Shared Model] | `< 0.9.0` / `0.9.0` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 10 | **CVE-2026-44561** | [GHSA-hmgr-67hw-j2cq](https://github.com/open-webui/open-webui/security/advisories/GHSA-hmgr-67hw-j2cq) | Open WebUI | Persistent Channel Access for Deactivated/Removed Members (CWE-284 / CWE-863) | `< 0.9.0` / `0.9.0` | `documented` | **VERIFIED** | **NOT TESTED** (Documented Only) |
+| 11 | **CVE-2024-31621** | [GHSA-6wp6-22x5-rr3w](https://github.com/advisories/GHSA-6wp6-22x5-rr3w) | FlowiseAI Flowise | Unauthenticated API Access and Code Injection in api/v1 (CWE-94 / CWE-287) | `< 1.8.1` (GHSA) / `<= 1.6.2` (NVD) | `documented` | **CONFLICTING** | **NOT TESTED** (Documented Only) |
+| 12 | **CVE-2024-52306** | [GHSA-8237-957h-h2c2](https://github.com/advisories/GHSA-8237-957h-h2c2) | Backpack FileManager | Insecure Deserialization in Laravel Backpack FileManager (CWE-502) | `< 2.0.2` and `>= 3.0.0, < 3.0.9` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 13 | **CVE-2024-52307** | [GHSA-2xrw-5f2x-m56j](https://github.com/goauthentik/authentik/security/advisories/GHSA-2xrw-5f2x-m56j) | authentik | Timing Attack on Metrics Endpoint in authentik IDP (CWE-208) | `< 2024.8.5` & `2024.10.0-2024.10.2` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 14 | **CVE-2024-41133** | [HPESBNW04673](https://support.hpe.com/hpesc/public/docDisplay?docId=hpesbnw04673en_us) | HPE Aruba SD-WAN | Authenticated Command Injection in EdgeConnect SD-WAN CLI (CWE-78) | Multiple ECOS branches (9.3, 9.2, 9.1) | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 15 | **CVE-2024-43407** | [GHSA-7r32-vfj5-c2jv](https://github.com/advisories/GHSA-7r32-vfj5-c2jv) | CKEditor 4 | Reflected Cross-Site Scripting in Code Snippet GeSHi Plugin (CWE-79) | `< 4.25.0-LTS` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 16 | **CVE-2024-52308** | [GHSA-p2h2-3vg9-4p87](https://github.com/cli/cli/security/advisories/GHSA-p2h2-3vg9-4p87) | GitHub CLI | Command Injection in gh codespace ssh/logs (CWE-78) | `<= 2.61.0` / `2.62.0` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 17 | **CVE-2024-45388** | [GHSA-6xx4-x46f-f897](https://github.com/SpectoLabs/hoverfly/security/advisories/GHSA-6xx4-x46f-f897) | Hoverfly | Directory Traversal Arbitrary File Read in /api/v2/simulation (CWE-22) | `< 1.10.3` / `1.10.3` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 18 | **CVE-2024-45389** | [GHSA-gprj-6m2f-j9hx](https://github.com/CloudCannon/pagefind/security/advisories/GHSA-gprj-6m2f-j9hx) | Pagefind | DOM Clobbering Script Loading in Pagefind Static Search (CWE-79) | `< 1.1.1` / `1.1.1` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 19 | **CVE-2024-42475** | [GHSA-332c-q46h-fg8f](https://github.com/CORDEA/oauth/security/advisories/GHSA-332c-q46h-fg8f) | Nim OAuth Library | Insufficient Entropy in OAuth generateState Function (CWE-330) | `< 0.11` / `0.11` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 20 | **CVE-2024-45391** | [GHSA-4qrm-9h4r-v2fx](https://github.com/tinacms/tinacms/security/advisories/GHSA-4qrm-9h4r-v2fx) | TinaCMS | Search Token Credential Exposure in tina-lock.json (CWE-200) | `< 1.6.2` / `1.6.2` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
+| 21 | **CVE-2024-34359** | [GHSA-56xg-wfcc-g829](https://github.com/abetlen/llama-cpp-python/security/advisories/GHSA-56xg-wfcc-g829) | llama-cpp-python | Server-Side Template Injection in GGUF Jinja2 Templates (CWE-76) | `>= 0.2.30, <= 0.2.71` / `0.2.72` | `rejected` | **QUARANTINED** | **NOT APPLICABLE** (Quarantined) |
 
 ---
 
-### Class 2: Role or Function-Level Authorization Bypass
+## 🧪 Section 1: Active Executable Regression Probes (Tier-1 Suite)
 
-#### 10. CVE-2026-45398: Knowledge Base UUID Prefix Bypass
-- **Target:** Open WebUI `< 0.9.5`
-- **CWE:** CWE-863 (Incorrect Authorization)
-- **Mechanism:** The access-control helper strictly verified `user-memory-*` and `file-*` prefixed resources, but raw knowledge base UUIDs (which had no prefix) fell through to the query execution handler unchecked.
-- **Attack Strategy:** Bob queries `/process/text` or `/query` using Alice's knowledge base UUID directly.
-- **Firedamp Defense Probe:** Bob calls direct endpoints with Alice's raw UUID. Firedamp asserts authorization failure.
-- **Remediation:** Remove prefix-dependent logic; require explicit permission checks on all identifiers.
+The Tier-1 suite contains **4 executable, deterministic behavioral regression probes** targeting Open WebUI release milestones:
 
-#### 11. CVE-2024-31621: Flowise Credential IDOR
-- **Target:** Flowise `< 1.4.3`
-- **CWE:** CWE-639 (IDOR)
-- **Mechanism:** API endpoints for credentials allowed reading connection strings (including vector DB API keys) by supplying an ID.
-- **Attack Strategy:** Bob fetches Alice's vector database credentials to query her vector store directly out-of-band.
-- **Firedamp Defense Probe:** Bob attempts to read credentials by ID; Firedamp asserts HTTP 403/404.
+### 1. CVE-2026-44560: Direct Collection Vector Retrieval Authorization Bypass
+- **Target:** Open WebUI `<= 0.8.12` (Patched in `>= 0.9.0`)
+- **Component:** `get_sources_from_items` in chat-completion RAG pipeline (`POST /api/chat/completions`)
+- **CWE:** CWE-862 (Missing Authorization) [Aggregated vulnerability databases / NVD; unassigned in upstream GHSA-h36f-rqpx-j5wx]
+- **Attack Mechanism:** The chat completion source-resolution pipeline resolved file attachments in the `files` array without checking user authorization. An authenticated attacker could attach another user's `file_id` to extract indexed chunks into the chat context.
+- **Probe Implementation:** [cve_2026_44560.py](cve_2026_44560.py)
+- **Strengthened Detection:** Multi-channel inspection scans:
+  1. Assistant message response content (`choices[0].message.content`).
+  2. Citation metadata (`choices[0].message.citations`).
+  3. Source references (`choices[0].message.sources`).
+  4. Attached context blocks (`choices[0].context` and top-level `context`).
+  5. Full raw JSON response payload fallback.
+- **Behavioral Verification:** Bob sends a chat completion request attaching Alice's private `file_id` in `files`. The probe asserts zero canary tokens in the response or citation context.
+- **Remediation:** Enforce user ownership validation on all file and collection resolution paths prior to executing vector searches. Patched in `v0.9.0`.
 
-#### 12. CVE-2024-43407: Langflow Flow & Collection Manipulation Bypass
-- **Target:** Langflow `< 1.0.15`
-- **CWE:** CWE-863 (Incorrect Authorization)
-- **Mechanism:** PATCH requests allowed modifying flow component connections without checking flow ownership.
-- **Attack Strategy:** Bob updates Alice's flow definition to route retrievals to Bob's webhook or chat session.
-- **Firedamp Defense Probe:** Bob sends a PATCH request to Alice's flow; Firedamp asserts HTTP 403.
+### 2. CVE-2026-45398: Knowledge Base Raw UUID Prefix Validation Bypass
+- **Target:** Open WebUI `<= 0.9.4` (Patched in `0.9.5`)
+- **Component:** `_validate_collection_access` in collection access validator
+- **CWE:** CWE-639 (Insecure Direct Object Reference)
+- **Attack Mechanism:** The authorization helper validated `user-memory-*` and `file-*` prefixes but permitted raw knowledge base UUIDs to pass through unchecked into retrieval endpoints.
+- **Target Endpoints:** `POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc`. Unverified fallback routes were excised.
+- **Probe Scope:** Specifically covers the **retrieval read-side raw UUID authorization bypass** via `adapter.query_collection` and `adapter.query_doc`. It does **not** test write-side collection injection routes (`/process/text`, `/process/file`, `/process/files/batch`) from the advisory.
+- **Probe Implementation:** [cve_2026_45398.py](cve_2026_45398.py)
+- **Behavioral Verification:** Alice creates a private knowledge base. Bob calls `adapter.query_collection` and `adapter.query_doc` with Alice's raw UUID. The probe asserts authorization denial and zero canary leakage.
+- **Remediation:** Apply universal ACL validation across all resource identifiers, including raw UUIDs. Patched in `v0.9.5`.
 
----
-
-### Class 3: Revocation & Lifecycle Staleness
-
-#### 13. CVE-2026-44561: Deactivated Channel Member Persistent Access
-- **Target:** Open WebUI `< 0.9.5`
-- **CWE:** CWE-269 (Improper Privilege Management)
-- **Precondition:** `channels_feature` enabled
-- **Mechanism:** When a user was removed from a group or channel, cached ACL grants and active session contexts remained in memory, allowing continued querying of channel knowledge.
-- **Attack Strategy:** Bob is granted access, then revoked. Bob queries immediately and periodically to exploit caching lag.
-- **Firedamp Defense Probe:**
-  1. Alice shares resource with Bob.
-  2. Firedamp confirms Bob can read the canary.
-  3. Alice revokes Bob's access.
-  4. Firedamp immediately verifies Bob can no longer read the canary.
-  5. Firedamp re-tests after 5 seconds to ensure no background cache reinvalidation occurs.
-- **Remediation:** Evict all related cache keys and terminate associated active sessions upon revocation.
-
----
-
-### Class 4: Vector Store Filter & Query Expression Injection
-
-#### 14. CVE-2026-54019: Milvus Boolean Expression Filter Injection
-- **Target:** Open WebUI `< 0.9.6`
-- **CWE:** CWE-94 (Improper Control of Generation of Code / Expression Injection)
-- **Precondition:** `milvus_multitenancy` mode enabled
-- **Mechanism:** Open WebUI passed user-controlled collection names directly into Milvus boolean filter expressions without escaping or parameterization.
-- **Attack Strategy:** Bob submits a collection query with a crafted payload:
-  `collection_name = "target_collection' or 1==1 or collection_name == 'x"`
-  This causes Milvus to evaluate the filter as always true, returning chunks belonging to all tenants.
-- **Firedamp Defense Probe:** Firedamp constructs the SQL/expression injection payload in Bob's query under Milvus. Firedamp checks that the query is rejected and no foreign canaries are retrieved.
-- **Remediation:** Strictly sanitize and regex-validate collection names (`^[a-zA-Z0-9_-]+$`) and use parameterized filter expressions.
-
----
-
-### Class 5: Shared-Store Tenant Scoping & Partitioning
-
-#### 15. CVE-2024-45391: Milvus Partition and Collection RBAC Privilege Bypass
-- **Target:** Milvus `< 2.4.5`
-- **CWE:** CWE-284 (Improper Access Control)
-- **Precondition:** `milvus_rbac` enabled
-- **Mechanism:** Milvus proxy coordinators failed to validate partition-level permissions when a query specified multiple partitions in `partition_names`.
-- **Attack Strategy:** Low-privilege tenant queries restricted partitions containing other tenants' vectorized data.
-- **Firedamp Defense Probe:** Bob executes partition query targeting Alice's private partition; Firedamp asserts permission denied.
-
-#### 16. CVE-2024-34359: ChromaDB Tenant Header Spoofing
-- **Target:** ChromaDB `< 0.4.24`
-- **CWE:** CWE-284 (Improper Access Control)
-- **Precondition:** Multi-tenant ChromaDB deployment
-- **Mechanism:** The server trusted unauthenticated HTTP headers (`X-Chroma-Tenant`) to scope tenant databases without verifying the caller's JWT token identity.
-- **Attack Strategy:** Bob sends queries with `X-Chroma-Tenant: alice_tenant`.
-- **Firedamp Defense Probe:** Bob sends spoofed tenant headers; Firedamp verifies the server rejects or ignores client-supplied tenant headers.
-
-#### 17. CVE-2024-42475: LiteLLM Virtual Key Team Scoping Bypass
-- **Target:** LiteLLM `< 1.40.15`
-- **CWE:** CWE-863 (Incorrect Authorization)
-- **Mechanism:** Virtual API keys designated for one team were permitted to invoke models and retrieve contexts assigned to other teams.
-- **Attack Strategy:** Attacker uses Team A API key to access Team B's model endpoint.
-- **Firedamp Defense Probe:** Issue request with Team A key against Team B deployment; verify HTTP 403.
-
----
-
-### Class 6: Cross-Tenant Memory & Semantic Cache Bleed
-
-#### 18. CVE-2024-45389: LiteLLM Semantic Cache Collision
-- **Target:** LiteLLM `< 1.44.0`
-- **CWE:** CWE-200 (Information Exposure)
-- **Precondition:** Redis / in-memory semantic cache enabled
-- **Mechanism:** Cache keys were generated solely from prompt embedding similarity without incorporating tenant or user namespace salts.
-- **Attack Strategy:** Alice queries her private knowledge base for sensitive financial earnings, populating the cache. Bob later asks a semantically identical question ("What were our quarterly earnings?") and receives Alice's cached response including her private retrieved data.
-- **Firedamp Defense Probe:**
-  1. Alice queries private document containing canary token (populating cache).
-  2. Bob queries semantically identical query.
-  3. Firedamp checks whether Bob's response contains Alice's canary token.
-- **Remediation:** Namespace all semantic cache entries with `(tenant_id, user_id, hash(prompt))`.
-
----
-
-### Class 7: Indirect Channels (Citations, Exports, Forged Links)
-
-#### 19. CVE-2026-54010: Forged Chat-File Link Association
-- **Target:** Open WebUI `< 0.9.3`
-- **CWE:** CWE-639 (IDOR)
-- **Mechanism:** In chat persistence routines, attaching a file ID to a chat message did not verify that the user owned that file ID, allowing read and delete access through the chat interface.
-- **Attack Strategy:** Bob crafts a chat message payload referencing Alice's private `file_id`.
-- **Firedamp Defense Probe:** Bob associates Alice's `file_id` with a new chat; Firedamp verifies the association is rejected with HTTP 403.
-
----
-
-### Class 8: Write-Side Poisoning & Cross-Tenant Manipulation
-
-#### 20. CVE-2026-28788: Cross-User Batch File Overwrite via `process_files_batch`
+### 3. CVE-2026-28788: Cross-User Batch File Overwrite via `retrieval/process/files/batch`
 - **Target:** Open WebUI `< 0.8.6`
+- **Component:** `POST /api/v1/retrieval/process/files/batch` (unsupported fallback to `/api/v1/files/batch/process` removed)
 - **CWE:** CWE-639 (Authorization Bypass Through User-Controlled Key)
-- **Mechanism:** The `process_files_batch()` endpoint accepted an existing `file_id`. If an authenticated user provided another user's `file_id`, the server overwrote the file record and re-indexed the new content into the vector store under the original file's ownership.
-- **Attack Strategy:** Bob discovers Alice's `file_id` and submits an overwrite payload containing misleading instructions or poisoned data. When Alice queries her RAG system, Bob's poisoned text is served to her LLM.
-- **Firedamp Defense Probe:**
-  1. Alice uploads clean document with `canary_alice`.
-  2. Bob calls `process_files_batch()` with `alice_file_id` and `canary_bob_tracer`.
-  3. Firedamp asserts the overwrite request is rejected with HTTP 403.
-  4. Firedamp verifies Alice's document still contains `canary_alice` and zero traces of `canary_bob_tracer`.
-- **Remediation:** Check ownership prior to mutating existing file records or launching background vector indexing jobs.
+- **Attack Mechanism:** The file batch processing endpoint lacked ownership checks, allowing an authenticated attacker to supply a victim's `file_id` and overwrite their stored content, poisoning subsequent RAG queries served to the LLM.
+- **Probe Implementation:** [cve_2026_28788.py](cve_2026_28788.py)
+- **Independent Mutation Verification:** The probe does not accept `status=True` as confirmed poisoning. It independently reads back Alice's file through legitimate verification routes (`read_file_content` via `GET /api/v1/files/{id}/content` as Alice) to verify whether `bob_tracer.token` actually mutated the victim's data. If readback cannot be completed, the outcome is reported as `INCONCLUSIVE`.
+- **Behavioral Verification:** Bob dispatches an overwrite payload containing a unique synthetic tracer targeting Alice's `file_id`. The probe verifies that the server rejects the overwrite and Alice's document remains unmodified.
+- **Remediation:** Validate file ownership on batch ingestion endpoints before mutating database records or re-indexing vector embeddings. Patched in `v0.8.6`.
 
-#### 21. CVE-2024-52307: Flowise Cross-Tenant Document Store Injection
-- **Target:** Flowise `< 2.1.3`
-- **CWE:** CWE-639 (IDOR)
-- **Mechanism:** In document store components, document upsert operations did not validate workspace ownership of target store IDs.
-- **Attack Strategy:** Bob upserts malicious vector embeddings into Alice's document store.
-- **Firedamp Defense Probe:** Bob attempts document upsert specifying Alice's store ID; Firedamp asserts HTTP 403.
+### 4. CVE-2026-54019: Milvus filter-expression injection / RAG tenant-isolation bypass
+- **Target:** Open WebUI `< 0.9.6` (under `milvus_multitenancy` mode)
+- **Component:** Milvus vector store client filter formatting (`resource_id`)
+- **Official Advisory:** [GHSA-p5cp-r7rg-qpxc](https://github.com/open-webui/open-webui/security/advisories/GHSA-p5cp-r7rg-qpxc)
+- **Target Endpoints:** `POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc`
+- **CWE:** CWE-862 (Missing Authorization) / CWE-943 (Improper Neutralization of Special Elements in Data Query Logic)
+- **Attack Mechanism:** User-supplied collection names (treated as `resource_id`) were interpolated directly into Milvus query expressions without sanitization: `expr = f"resource_id == '{resource_id}'"`. An attacker supplying the advisory PoC payload `x' or resource_id != '' or resource_id == 'x` evaluates the expression to boolean true across all indexed records, bypassing tenant vector partitioning.
+- **Probe Implementation:** [cve_2026_54019.py](cve_2026_54019.py)
+- **Exact PoC Payload:**
+  ```json
+  {
+    "collection_names": ["x' or resource_id != '' or resource_id == 'x"],
+    "query": "anything",
+    "k": 10,
+    "hybrid": false
+  }
+  ```
+- **Behavioral Verification:** Under Milvus multitenancy mode, Bob queries with the injection payload. The probe asserts that the engine rejects the injection and returns zero cross-tenant chunks.
+- **Remediation:** Use parameterized filter expressions and strictly validate collection identifiers against an allowlist pattern (`^[a-zA-Z0-9_-]+$`). Patched in `v0.9.6`.
 
 ---
 
-## 🛡️ Summary Defense Matrix
+## 📖 Section 2: Documented Vulnerabilities (Verified References)
 
-| Bug Class | Primary Attack Channel | Preconditions | Verification Strategy |
-| :--- | :--- | :--- | :--- |
-| **Class 1: IDOR / Route Auth** | Direct REST / RPC calls | None | Replay direct queries with Bob credentials; assert 403 and zero canary tokens. |
-| **Class 2: Role / Level Bypass** | Direct API & query params | None | Test raw UUIDs, stripped prefixes, and privilege elevation vectors. |
-| **Class 3: Revocation Staleness** | Lifecycle events | Active sharing feature | Grant $\rightarrow$ Verify read $\rightarrow$ Revoke $\rightarrow$ Verify immediate & delayed read fails. |
-| **Class 4: Vector Store Inject** | Vector query payloads | Milvus / filter mode | Inject boolean clauses (`' or 1=1 or '`) in collection parameters; assert syntax rejection. |
-| **Class 5: Shared Store Scoping** | Direct DB / proxy headers | Multi-tenant backend | Spoof tenant headers (`X-Chroma-Tenant`) or target foreign partitions. |
-| **Class 6: Cross-Tenant Memory** | LLM prompt & cache | Cache / memory enabled | Seed cache with Alice's query; execute identical query as Bob; assert no token match. |
-| **Class 7: Indirect Channels** | Chat links & exports | None | Associate foreign file IDs to Bob's chat; assert 403 Forbidden. |
-| **Class 8: Write-Side Poisoning** | Ingestion & batch APIs | None | Attempt mutating or overwriting Alice's files; verify integrity of Alice's baseline. |
+The following entries are verified vulnerabilities documented in Firedamp's catalog without standalone executable probe scripts:
 
+1. **CVE-2026-45301**: Open WebUI `< 0.3.16` (Broken Object Level Authorization on `/api/v1/files/`, CWE-284, fixed in `v0.3.16`).
+2. **CVE-2026-44557**: Open WebUI `< 0.9.0` (Global Knowledge Base Enumeration via `knowledge-bases` meta-collection, GHSA unassigned CWE, NVD assigns CWE-200 / CWE-862 / CWE-863, fixed in `v0.9.0`).
+3. **CVE-2026-54016**: Open WebUI `< 0.9.6` (Cross-Tenant File Enumeration via `search_knowledge_files` tool, GHSA lists CWE-639 and CWE-862, fixed in `v0.9.6`).
+4. **CVE-2026-54010**: Open WebUI `< 0.9.6` (Forged Chat-File Association Privilege Escalation and Deletion, GHSA lists CWE-284, CWE-639, and CWE-862, fixed in `v0.9.6`).
+5. **CVE-2026-45349**: Open WebUI `<= 0.8.12` (Chat Completions API Improper Authorization Exposing Other Users' Chats, CWE-639, requires access to same model, fixed in `v0.9.0`).
+6. **CVE-2026-44561**: Open WebUI `< 0.9.0` (Persistent Channel Access for Deactivated/Removed Members, GHSA lists CWE-284 and CWE-863, fixed in `v0.9.0`).
+7. **CVE-2024-31621**: FlowiseAI Flowise `< 1.8.1` (GHSA) / `<= 1.6.2` (NVD) (Unauthenticated API Access and Remote Code Execution via `/api/v1` endpoints, CWE-94 / CWE-287, fixed in `v1.8.1`).
+
+---
+
+## 🚫 Section 3: Forensic Audit & Quarantine of Misattributed Records
+
+During our forensic audit, 10 CVEs from early prototype databases were identified as misattributed to AI/RAG systems. They have been officially quarantined and marked `rejected`:
+
+1. **CVE-2024-52306**: Belongs to **Backpack FileManager** (PHP/Laravel administration panel insecure deserialization in `mimes` parameter, fixed in 3.0.9). Not related to Flowise.
+2. **CVE-2024-52307**: Belongs to **authentik** (Timing attack on Prometheus `/-/metrics/` endpoint to brute-force `SECRET_KEY`, fixed in 2024.10.3). Not related to Flowise.
+3. **CVE-2024-41133**: Belongs to **HPE Aruba EdgeConnect SD-WAN** (Command injection in ECOS CLI allowing root execution, fixed in 9.3.4.0). Not related to Langflow.
+4. **CVE-2024-43407**: Belongs to **CKEditor 4** (Reflected XSS in third-party GeSHi syntax highlighter plugin, fixed in 4.25.0-LTS). Not related to Langflow.
+5. **CVE-2024-52308**: Belongs to **GitHub CLI** (`gh codespace ssh` / `gh codespace logs` command injection, fixed in 2.62.0). Not related to Dify.
+6. **CVE-2024-45388**: Belongs to **Hoverfly** (Directory traversal arbitrary file read in `/api/v2/simulation`, GHSL-2023-274). Not related to Dify.
+7. **CVE-2024-45389**: Belongs to **Pagefind** (DOM clobbering manipulating dynamic JavaScript dependency loading, fixed in 1.1.1). Not related to LiteLLM.
+8. **CVE-2024-42475**: Belongs to **Nim OAuth Library** (Weak PRNG in `generateState` leading to CSRF, fixed in 0.11). Not related to LiteLLM.
+9. **CVE-2024-45391**: Belongs to **TinaCMS** (Search token credential exposure in `tina-lock.json`, fixed in 1.6.2). Not related to Milvus.
+10. **CVE-2024-34359**: Belongs to **llama-cpp-python** (Jinja2 Server-Side Template Injection in GGUF metadata, "Llama Drama", fixed in 0.2.72). Not related to ChromaDB tenant headers.
+
+---
+
+## 🛠️ Programmatic Access
+
+Inspect and filter the curated CVE catalog directly in Python:
+
+```python
+from probes.cve_registry import load_cve_catalog, validate_cve_catalog
+
+# Validate catalogue schema integrity
+errors = validate_cve_catalog()
+assert len(errors) == 0
+
+# Load active verified CVEs (filters out rejected entries)
+active_cves = load_cve_catalog(include_rejected=False)
+
+# Load only implemented executable probes (returns 4 probes)
+implemented_probes = load_cve_catalog(status="implemented")
+
+# Load Open WebUI CVEs (returns 10 verified records)
+owui_cves = load_cve_catalog(platform="openwebui")
+```

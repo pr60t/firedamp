@@ -123,7 +123,7 @@ class TestAgentMemoryScenarios(unittest.TestCase):
         self.assertEqual(res.channel, "direct_api")
 
     def test_user_memory_route_isolation_clean(self):
-        """Verify live execution when platform properly isolates user memory routes."""
+        """Verify simulated execution when platform properly isolates user memory routes."""
         adapter = MockAgentMemoryAdapter(leak_memory=False)
         res = test_user_memory_route_isolation(
             adapter=adapter,
@@ -168,7 +168,7 @@ class TestAgentMemoryScenarios(unittest.TestCase):
         self.assertFalse(res.is_leak)
 
     def test_tool_cache_isolation_clean(self):
-        """Verify live execution when tool caches are properly isolated."""
+        """Verify simulated execution when tool caches are properly isolated."""
         adapter = MockAgentMemoryAdapter(leak_tool_cache=False)
         res = test_tool_cache_isolation(
             adapter=adapter,

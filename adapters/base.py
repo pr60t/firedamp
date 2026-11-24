@@ -64,7 +64,8 @@ class TargetAdapter(ABC):
         self,
         base_url: str,
         session: UserSession,
-        prompt: str
+        prompt: str,
+        files: Optional[List[Dict[str, str]]] = None,
     ) -> Tuple[str, List[str], Dict[str, Any]]:
         """
         Executes an exfiltration or probing query under the persona's credentials.
@@ -87,19 +88,99 @@ class TargetAdapter(ABC):
         """
         pass
 
+    def query_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_names: List[str],
+        query: str = "anything",
+        k: int = 10,
+        hybrid: bool = False,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Executes query against vector collection endpoint: POST /api/v1/retrieval/query/collection.
+        Target endpoint for GHSA-p5cp-r7rg-qpxc (CVE-2026-54019) and GHSA-4g37-7p2c-38r9 (CVE-2026-45398).
+        """
+        first_ref = collection_names[0] if collection_names else ""
+        return self.query_resource_direct(base_url, session, first_ref, k=k)
+
+    def query_doc(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_name: str,
+        query: str = "anything",
+        k: int = 10,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Executes query against document retrieval endpoint: POST /api/v1/retrieval/query/doc.
+        Target endpoint for GHSA-p5cp-r7rg-qpxc (CVE-2026-54019) and GHSA-4g37-7p2c-38r9 (CVE-2026-45398).
+        """
+        return self.query_resource_direct(base_url, session, collection_name, k=k)
+
+    def read_file_content(
+        self,
+        base_url: str,
+        session: UserSession,
+        file_id: str,
+    ) -> Optional[str]:
+        """
+        Reads back an authorized user's file content through a legitimate path to independently
+        verify whether write-poisoning / unauthorized mutations took effect (CVE-2026-28788).
+        """
+        return None
+
     @abstractmethod
     def overwrite_resource(
         self,
         base_url: str,
         session: UserSession,
         resource_ref: str,
-        payload: str
+        payload: str,
+        collection_name: Optional[str] = None,
+        file_model: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Attempts to overwrite or mutate a resource owned by another tenant.
         Used for write-side integrity and poisoning checks (e.g. CVE-2026-28788).
         """
         pass
+
+    def get_knowledge_base_files(
+        self,
+        base_url: str,
+        session: UserSession,
+        knowledge_id: str,
+    ) -> Optional[List[str]]:
+        """
+        Retrieves the verified list of file IDs belonging to the given knowledge collection.
+        Returns None if membership cannot be verified (e.g. error, unsupported, or incomplete enumeration).
+        Returns an empty list (List[str]) if the knowledge collection is verified to contain zero files.
+        Default implementation returns None.
+        """
+        return None
+
+    def get_accessible_knowledge_bases(
+        self,
+        base_url: str,
+        session: UserSession,
+    ) -> Optional[List[str]]:
+        """
+        Retrieves the list of accessible knowledge base IDs for the given user session.
+        Returns None if enumeration is unsupported or fails.
+        Returns an empty list (List[str]) if the user session has zero accessible knowledge bases.
+        Default implementation returns None.
+        """
+        return None
+
+    def get_knowledge_base_metadata(
+        self,
+        base_url: str,
+        session: UserSession,
+        knowledge_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return authoritative server-side metadata for one knowledge base, or None."""
+        return None
 
     def inject_into_collection(
         self,
@@ -110,14 +191,13 @@ class TargetAdapter(ABC):
     ) -> Dict[str, Any]:
         """
         Attempts to inject an unauthorized document directly into another tenant's collection.
-        Default implementation attempts overwrite_resource.
+        Default implementation fails closed. Platform-specific adapters must implement a dedicated
+        collection injection operation only using a verified upstream API contract.
         """
-        return self.overwrite_resource(
-            base_url=base_url,
-            session=session,
-            resource_ref=target_collection_id,
-            payload=document.content,
-        )
+        return {
+            "error": "Unsupported operation: direct collection injection is not supported by this adapter",
+            "code": 501,
+        }
 
     def create_user_memory(
         self,
@@ -194,6 +274,52 @@ class TargetAdapter(ABC):
     def cleanup(self, base_url: str, session: UserSession) -> None:
         """Removes test documents, chats, and artifacts created during the audit."""
         pass
+
+    def validate_session(self, base_url: str, session: UserSession) -> bool:
+        """
+        Explicitly validates whether the session holds a genuinely authenticated token.
+        Distinguishes authenticated success from HTTP 401/403 errors and transport failures.
+        Returns True ONLY when authentication is positively confirmed.
+        """
+        if not session or not session.token:
+            return False
+        return False
+
+    def get_authenticated_user_id(
+        self,
+        base_url: str,
+        session: UserSession,
+    ) -> Optional[str]:
+        """
+        Retrieves the authenticated server-side user ID from the backend (e.g. via GET /api/v1/auths/).
+        Returns a non-empty string user ID if positively authenticated and verified, or None.
+        Fails closed on unauthenticated tokens, HTTP 401/403, errors, or missing ID.
+        """
+        return None
+
+    def get_file_metadata(
+        self,
+        base_url: str,
+        session: UserSession,
+        file_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves authoritative server-side metadata for a file (e.g. user_id, filename).
+        Returns metadata dict if accessible, None if inaccessible or unverified.
+        """
+        return None
+
+    def delete_file(
+        self,
+        base_url: str,
+        session: UserSession,
+        file_id: str,
+    ) -> bool:
+        """
+        Deletes a specific single file resource by its ID.
+        Returns True if deletion succeeded, False otherwise.
+        """
+        return False
 
 
 # Global adapter registry

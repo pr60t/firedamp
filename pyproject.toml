@@ -60,8 +60,14 @@ Documentation = "https://github.com/pr60t/firedamp#readme"
 Repository = "https://github.com/pr60t/firedamp.git"
 
 [tool.setuptools]
-packages = ["core", "adapters"]
 py-modules = ["cli"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "adapters*", "probes*"]
+
+[tool.setuptools.package-data]
+"probes.cves" = ["cve_catalog.json"]
 
 [tool.ruff]
 line-length = 100

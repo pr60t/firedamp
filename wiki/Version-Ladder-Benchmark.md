@@ -1,6 +1,11 @@
-# 📊 Open WebUI Version Ladder Benchmark
+# 📊 Open WebUI Version Ladder Benchmark (Simulation)
 
 The **Version Ladder Benchmark** evaluates Firedamp's behavioral accuracy, CVE detection rates, and zero-false-positive guarantees against historical release milestones of Open WebUI.
+
+> [!NOTE]
+> **Execution Mode Notice:** The automated benchmark executed via `python3 tests/benchmark_ladder.py` runs against an in-memory behavioral simulation (`VersionLadderSimulatedAdapter`) to deterministically verify probe logic, preconditions, and exact canary token matching across versions without requiring external Docker daemons or network dependencies. Live container deployment tests against real Open WebUI container images require an external Docker daemon.
+>
+> **Live Differential Validation Cross-Reference:** CVE-2026-28788 also has a separate live Docker differential validation (Open WebUI v0.8.5 `COMPROMISED` vs v0.8.6 `CLEAN`) documented in [CVE-Regression-Engine.md](CVE-Regression-Engine.md#live-differential-validation--open-webui-v085-vs-v086).
 
 ---
 
@@ -16,28 +21,35 @@ To validate that Firedamp's non-weaponized behavioral probes faithfully detect p
 
 ---
 
-## 📈 Empirical Benchmark Results
+## 📈 Empirical Benchmark Results (Simulated)
 
 ```text
-                 🛡️ Open WebUI Version Ladder Benchmark Metrics                  
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Release    ┃ Expected CVEs           ┃ Detected Breaches       ┃ False Pos ┃ Latency (s) ┃ Status     ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ v0.8.5     │ CVE-2026-28788, 44560,  │ CVE-2026-28788, 44560,  │ 0         │ 0.0002s     │ [+] PASSED │
-│            │ CVE-2026-45398          │ CVE-2026-45398          │           │             │            │
-│ v0.8.6     │ CVE-2026-44560, 45398   │ CVE-2026-44560, 45398   │ 0         │ 0.0002s     │ [+] PASSED │
-│ v0.9.0     │ CVE-2026-45398          │ CVE-2026-45398          │ 0         │ 0.0001s     │ [+] PASSED │
-│ v0.9.5     │ CVE-2026-54019 (Milvus) │ CVE-2026-54019 (Milvus) │ 0         │ 0.0002s     │ [+] PASSED │
-│ v0.9.6     │ None (Patched)          │ None (Patched)          │ 0         │ 0.0001s     │ [+] PASSED │
-└────────────┴━━━━━━━━━━━━━━━━━━━━━━━━━┴━━━━━━━━━━━━━━━━━━━━━━━━━┴───────────┴─────────────┴━━━━━━━━━━━━┘
+               🛡️ Open WebUI Version Ladder Benchmark (SIMULATION)
+┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Release  ┃ Target   ┃ Expected ┃ Detected  ┃ False    ┃ Latency   ┃ Ladder   ┃
+┃ Tag      ┃ Mode     ┃ CVEs     ┃ Breaches  ┃ Positiv… ┃ (s)       ┃ Status   ┃
+┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━┩
+│ v0.8.5   │ simulat… │ CVE-202… │ CVE-2026… │ 0        │ 0.0001s   │ [+]      │
+│          │          │ CVE-202… │ CVE-2026… │          │           │ PASSED   │
+│          │          │ CVE-202… │ CVE-2026… │          │           │          │
+│ v0.8.6   │ simulat… │ CVE-202… │ CVE-2026… │ 0        │ 0.0001s   │ [+]      │
+│          │          │ CVE-202… │ CVE-2026… │          │           │ PASSED   │
+│ v0.9.0   │ simulat… │ CVE-202… │ CVE-2026… │ 0        │ 0.0001s   │ [+]      │
+│          │          │          │           │          │           │ PASSED   │
+│ v0.9.5   │ simulat… │ CVE-202… │ CVE-2026… │ 0        │ 0.0001s   │ [+]      │
+│          │          │          │           │          │           │ PASSED   │
+│ v0.9.6   │ simulat… │ None     │ None      │ 0        │ 0.0001s   │ [+]      │
+│          │          │ (Clean)  │ (Clean)   │          │           │ PASSED   │
+└──────────┴──────────┴──────────┴───────────┴──────────┴───────────┴──────────┘
 ```
 
 ### Summary Metrics
 
 | Benchmark Metric | Empirical Value | Target SLA | Assessment |
 | :--- | :---: | :---: | :---: |
+| **Execution Mode** | **Simulated In-Memory** | N/A | Deterministic emulation (no live containers) |
 | **Total Release Milestones** | **5** | 5 | Complete ladder coverage |
-| **CVE Detection Rate** | **100.0%** | $\ge 95\%$ | **Zero Misses:** Every active vulnerability flagged |
+| **Simulated Scenario Pass Rate** | **100.0%** | $\ge 95\%$ | **Zero Misses:** Every active vulnerability flagged |
 | **False Positive Count** | **0** | 0 | **Zero False Alarms:** Patched versions return clean |
 | **Mean Execution Latency** | **< 0.001s** | $< 5.0\text{s}$ | Sub-millisecond deterministic evaluation |
 
@@ -60,7 +72,7 @@ python3 tests/benchmark_ladder.py --json
 ```json
 {
   "total_versions_tested": 5,
-  "cve_detection_rate_pct": 100.0,
+  "simulated_scenario_pass_rate_pct": 100.0,
   "total_false_positives": 0,
   "mean_execution_time_seconds": 0.0002,
   "results": [

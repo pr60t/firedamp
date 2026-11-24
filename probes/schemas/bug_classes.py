@@ -15,6 +15,7 @@ class BugClass(str, Enum):
     CROSS_TENANT_MEMORY = "cross_tenant_cache_and_memory"  # Semantic cache bleed, cross-user agent scratchpad
     INDIRECT_CHANNELS = "indirect_channels"               # Citations, exports, forged links, tool call bleed
     WRITE_SIDE_ACCESS = "write_side_access_poisoning"      # Cross-user overwriting, document injection into other KB
+    NOT_APPLICABLE = "not_applicable"                     # Non-RAG / rejected catalog entries (misattributions)
 
 
 class ProbeChannel(str, Enum):
