@@ -1,0 +1,18 @@
+{
+  "id": "disposable-target-f123",
+  "user_id": "alice-uuid-12345",
+  "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "filename": "alice_original.txt",
+  "path": "/app/backend/data/uploads/disposable-target-f123.txt",
+  "data": {
+    "content": "CONFIDENTIAL QUARTERLY ASSET LEDGER\nOWNER: Alice\nCANARY TOKEN: CANARY-ALICE-VAULT-99887766-ORIGINAL"
+  },
+  "meta": {
+    "collection_name": "kb-alice-knowledge-1",
+    "name": "alice_original.txt",
+    "content_type": "text/plain",
+    "size": 256
+  },
+  "created_at": 1732272000,
+  "updated_at": 1732272000
+}

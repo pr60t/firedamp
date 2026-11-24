@@ -19,6 +19,7 @@ from core.engine import (
     CanaryToken,
     DecoyDocument,
     ProbingEngine,
+    ProbeResult,
     LeakSeverity,
 )
 from core.reporter import FiredampReporter, AuditSummary
@@ -341,7 +342,10 @@ class TestCanaryEngine(unittest.TestCase):
             )
             self.assertEqual(mock_adapter.ingest_document.call_count, 2)
             self.assertEqual(mock_adapter.query_rag.call_count, 3)  # 1 baseline + 2 Bob probes
-            mock_adapter.cleanup.assert_called_once_with("http://mock-target:8080", alice_session)
+            self.assertEqual(mock_adapter.cleanup.call_count, 2)
+            self.assertEqual(mock_adapter.cleanup.call_args_list[0].args, ("http://mock-target:8080", alice_session))
+            self.assertEqual(mock_adapter.cleanup.call_args_list[1].args[0], "http://mock-target:8080")
+            self.assertEqual(mock_adapter.cleanup.call_args_list[1].args[1].username, "bob_attacker")
 
             with open(tmp_path, "r", encoding="utf-8") as f:
                 report_data = json.load(f)
@@ -412,6 +416,65 @@ class TestCanaryEngine(unittest.TestCase):
                     callable(method),
                     f"'{method_name}' on adapter '{adapter_name}' must be callable"
                 )
+
+    def test_probing_engine_constructor_unexpected_kwarg_rejection(self):
+        """ProbingEngine.__init__ rejects unexpected kwargs like 'canary_generator' with TypeError."""
+        with self.assertRaises(TypeError) as ctx:
+            ProbingEngine(canary_generator=None)
+        self.assertIn("canary_generator", str(ctx.exception))
+
+    def test_probing_engine_constructor_canonical_arguments(self):
+        """ProbingEngine.__init__ properly accepts canary_prefix and run_id."""
+        engine = ProbingEngine(canary_prefix="TEST-CANARY", run_id="run-canary-001")
+        self.assertEqual(engine.canary_prefix, "TEST-CANARY")
+        self.assertEqual(engine.run_id, "run-canary-001")
+
+    def test_probe_result_positional_arguments_compatibility(self):
+        """ProbeResult preserves original positional argument ordering (up to timestamp) and defaults inconclusive=False."""
+        fixed_timestamp = "2026-11-24T12:00:00.000000+00:00"
+        res = ProbeResult(
+            "p-pos-001",
+            "prompt text",
+            "semantic",
+            "Access denied 403",
+            ["citation chunk"],
+            [],
+            LeakSeverity.NONE,
+            "direct_api",
+            fixed_timestamp,
+        )
+        self.assertEqual(res.probe_id, "p-pos-001")
+        self.assertEqual(res.probe_prompt, "prompt text")
+        self.assertEqual(res.probe_category, "semantic")
+        self.assertEqual(res.target_response, "Access denied 403")
+        self.assertEqual(res.retrieved_contexts, ["citation chunk"])
+        self.assertEqual(res.leaked_canaries, [])
+        self.assertEqual(res.severity, LeakSeverity.NONE)
+        self.assertEqual(res.channel, "direct_api")
+        self.assertEqual(res.timestamp, fixed_timestamp)
+        self.assertIs(res.inconclusive, False)
+        self.assertIs(res.is_inconclusive, False)
+        self.assertIs(res.is_clean, True)
+        self.assertIs(res.is_leak, False)
+
+    def test_probe_result_inconclusive_keyword_argument(self):
+        """ProbeResult supports inconclusive=True via keyword argument while leaving other fields to defaults."""
+        res = ProbeResult(
+            probe_id="p-kw-002",
+            probe_prompt="aborted prompt",
+            probe_category="lifecycle",
+            target_response="Setup incomplete",
+            retrieved_contexts=[],
+            leaked_canaries=[],
+            severity=LeakSeverity.NONE,
+            inconclusive=True,
+        )
+        self.assertEqual(res.probe_id, "p-kw-002")
+        self.assertIs(res.inconclusive, True)
+        self.assertIs(res.is_inconclusive, True)
+        self.assertIs(res.is_clean, False)
+        self.assertIs(res.is_leak, False)
+        self.assertEqual(res.channel, "llm_prompt")
 
 
 if __name__ == "__main__":

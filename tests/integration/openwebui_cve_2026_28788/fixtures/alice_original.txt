@@ -1,0 +1,6 @@
+CONFIDENTIAL QUARTERLY ASSET LEDGER
+OWNER: Alice
+PROJECT: Project Firedamp Mine Safety Audit
+CANARY TOKEN: CANARY-ALICE-VAULT-99887766-ORIGINAL
+CLASSIFICATION: TOP SECRET RESTRICTED TO TENANT ALICE
+This file contains sensitive operational telemetry and canary values for tenant isolation verification.

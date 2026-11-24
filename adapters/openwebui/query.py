@@ -24,17 +24,21 @@ class OpenWebUIQueryMixin:
         session: UserSession,
         prompt: str,
         model: Optional[str] = None,
+        files: Optional[List[Dict[str, str]]] = None,
     ) -> Tuple[str, List[str], Dict[str, Any]]:
         """
-        Query via POST /api/chat/completions with knowledge collection references.
+        Query via POST /api/chat/completions with knowledge collection or file references.
         Returns (assistant_text, list_of_retrieved_context_strings, raw_response_dict).
         """
         base = base_url.rstrip("/")
 
-        # Build files[] from the session's knowledge collections
-        files_payload: List[Dict[str, str]] = []
-        for kb_id in session.metadata.get("knowledge_ids", []):
-            files_payload.append({"type": "collection", "id": kb_id})
+        # Build files[] from explicit parameter or from the session's knowledge collections
+        if files is not None:
+            files_payload = files
+        else:
+            files_payload = []
+            for kb_id in session.metadata.get("knowledge_ids", []):
+                files_payload.append({"type": "collection", "id": kb_id})
 
         payload: Dict[str, Any] = {
             "model": model or getattr(self, "DEFAULT_MODEL", "llama3:8b"),
@@ -55,6 +59,64 @@ class OpenWebUIQueryMixin:
         assistant_text, retrieved_contexts = self._parse_chat_response(res)
         return assistant_text, retrieved_contexts, res
 
+    def query_collection(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_names: List[str],
+        query: str = "anything",
+        k: int = 10,
+        hybrid: bool = False,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Executes query against vector collection endpoint: POST /api/v1/retrieval/query/collection.
+        Target endpoint for GHSA-p5cp-r7rg-qpxc (CVE-2026-54019) and GHSA-4g37-7p2c-38r9 (CVE-2026-45398).
+        """
+        base = base_url.rstrip("/")
+        payload: Dict[str, Any] = {
+            "collection_names": collection_names,
+            "query": query,
+            "k": k,
+            "hybrid": hybrid,
+        }
+        res = self._json_request(
+            f"{base}/api/v1/retrieval/query/collection",
+            method="POST",
+            data=payload,
+            headers=session.headers,
+            timeout=30,
+        )
+        retrieved_contexts = self._extract_documents_from_retrieval(res)
+        return "", retrieved_contexts, res
+
+    def query_doc(
+        self,
+        base_url: str,
+        session: UserSession,
+        collection_name: str,
+        query: str = "anything",
+        k: int = 10,
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Executes query against document retrieval endpoint: POST /api/v1/retrieval/query/doc.
+        Target endpoint for GHSA-p5cp-r7rg-qpxc (CVE-2026-54019) and GHSA-4g37-7p2c-38r9 (CVE-2026-45398).
+        """
+        base = base_url.rstrip("/")
+        payload: Dict[str, Any] = {
+            "collection_name": collection_name,
+            "query": query,
+            "k": k,
+        }
+        res = self._json_request(
+            f"{base}/api/v1/retrieval/query/doc",
+            method="POST",
+            data=payload,
+            headers=session.headers,
+            timeout=30,
+        )
+        retrieved_contexts = self._extract_documents_from_retrieval(res)
+        return "", retrieved_contexts, res
+
     def query_resource_direct(
         self,
         base_url: str,
@@ -63,31 +125,22 @@ class OpenWebUIQueryMixin:
         k: int = 50,
     ) -> Tuple[str, List[str], Dict[str, Any]]:
         """
-        Calls direct retrieval endpoint referencing an unauthorized collection or file ID.
-        Attempts multiple direct vector query routes:
-        1. /api/v1/retrieval/query (direct vector search)
-        2. /api/v1/knowledge/{id} (direct collection inspect)
-        3. /api/v1/files/{id}/content (direct file content retrieval)
+        Calls collection retrieval endpoint referencing an unauthorized collection or UUID.
+        Targets POST /api/v1/retrieval/query/collection without unverified fallback routes.
         """
-        base = base_url.rstrip("/")
-        retrieved_contexts: List[str] = []
-
-        # 1. Direct retrieval endpoint probe (CVE-2026-44560, CVE-2026-45398)
-        direct_payload = {
-            "collection_names": [resource_ref],
-            "collection_name": resource_ref,
-            "query": "canary confidential secret token document summary",
-            "k": k,
-        }
-        res = self._json_request(
-            f"{base}/api/v1/retrieval/query",
-            method="POST",
-            data=direct_payload,
-            headers=session.headers,
-            timeout=30,
+        return self.query_collection(
+            base_url=base_url,
+            session=session,
+            collection_names=[resource_ref],
+            query="canary confidential secret token document summary",
+            k=k,
+            hybrid=False,
         )
 
-        # Extract chunks from direct vector response
+    @staticmethod
+    def _extract_documents_from_retrieval(res: Dict[str, Any]) -> List[str]:
+        """Extract text chunks from retrieval endpoints (/query/collection, /query/doc)."""
+        retrieved_contexts: List[str] = []
         documents = res.get("documents", [])
         if isinstance(documents, list):
             for doc in documents:
@@ -97,21 +150,7 @@ class OpenWebUIQueryMixin:
                             retrieved_contexts.append(chunk)
                 elif isinstance(doc, str) and doc:
                     retrieved_contexts.append(doc)
-
-        # 2. If no chunks found, test knowledge API inspection
-        if not retrieved_contexts and not res.get("error"):
-            kb_res = self._json_request(
-                f"{base}/api/v1/knowledge/{resource_ref}",
-                method="GET",
-                headers=session.headers,
-            )
-            if not kb_res.get("error"):
-                res = kb_res
-                desc = kb_res.get("description", "")
-                if desc:
-                    retrieved_contexts.append(desc)
-
-        return "", retrieved_contexts, res
+        return retrieved_contexts
 
     @staticmethod
     def _parse_chat_response(res: Dict[str, Any]) -> Tuple[str, List[str]]:
@@ -142,8 +181,8 @@ class OpenWebUIQueryMixin:
                 res.get("message", {}).get("content", "")
             )
 
-        # Top-level sources/citations (outside choices)
-        for key in ("sources", "citations"):
+        # Top-level sources/citations/context (outside choices)
+        for key in ("sources", "citations", "context"):
             raw = res.get(key)
             if raw:
                 OpenWebUIQueryMixin._extract_contexts(raw, retrieved_contexts)

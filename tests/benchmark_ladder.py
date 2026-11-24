@@ -40,7 +40,7 @@ logger = logging.getLogger("firedamp.benchmark")
 console = Console()
 
 
-# Historical version vulnerability mapping
+# Historical version vulnerability mapping├── todo.md             # Development roadmap & milestone tracker
 VERSION_CVE_VULNERABILITIES = {
     "v0.8.5": {"CVE-2026-28788", "CVE-2026-44560", "CVE-2026-45398"},
     "v0.8.6": {"CVE-2026-44560", "CVE-2026-45398"},
@@ -68,16 +68,68 @@ class VersionLadderSimulatedAdapter(TargetAdapter):
         self.canary_str = planted_canaries[0].token if planted_canaries else "CANARY-FRDP-default"
 
     def authenticate_user(self, base_url: str, username: str, password: str, role: str = "user") -> UserSession:
+        run_id = "ladder-sim-run"
+        from probes.cves.cve_2026_28788 import register_trusted_disposable_resource
+        if role == "owner":
+            register_trusted_disposable_resource(run_id, "sim-alice-disposable-1", username)
         return UserSession(
             username=username,
             role=role,
-            metadata={"file_ids": ["sim-alice-file-1"], "knowledge_ids": ["sim-alice-kb-1"]},
+            token=f"token-{username}",
+            metadata={
+                "run_id": run_id,
+                "user_id": f"{username}-server-id",
+                "file_ids": ["sim-alice-file-1"],
+                "knowledge_ids": ["sim-alice-kb-1"],
+                "disposable_file_ids": ["sim-alice-disposable-1"],
+                "disposable_provenance": {
+                    "sim-alice-disposable-1": {
+                        "file_id": "sim-alice-disposable-1",
+                        "provisioned_by": "firedamp",
+                        "owner": username,
+                        "run_id": run_id,
+                        "active": True,
+                    }
+                },
+            },
         )
 
-    def ingest_document(self, base_url: str, session: UserSession, document: DecoyDocument) -> str:
-        return "sim-alice-kb-1"
+    def validate_session(self, base_url: str, session: UserSession) -> bool:
+        return bool(session and session.token)
 
-    def query_rag(self, base_url: str, session: UserSession, prompt: str):
+    def get_authenticated_user_id(self, base_url: str, session: UserSession) -> Optional[str]:
+        if not session or not session.token:
+            return None
+        return session.metadata.get("user_id", f"{session.username}-server-id")
+
+    def get_file_metadata(self, base_url: str, session: UserSession, file_id: str) -> Optional[Dict[str, Any]]:
+        user_id = session.metadata.get("user_id", f"{session.username}-server-id")
+        return {"id": file_id, "user_id": user_id, "owner": session.username}
+
+    def get_accessible_knowledge_bases(self, base_url: str, session: UserSession) -> Optional[List[str]]:
+        return ["sim-alice-kb-1"]
+
+    def get_knowledge_base_files(self, base_url: str, session: UserSession, knowledge_id: str) -> Optional[List[str]]:
+        if knowledge_id == "sim-alice-kb-1":
+            return ["sim-alice-file-1", "sim-alice-disposable-1"]
+        return []
+
+    def delete_file(self, base_url: str, session: UserSession, file_id: str) -> bool:
+        return True
+
+    def ingest_document(self, base_url: str, session: UserSession, document: DecoyDocument) -> str:
+        return "sim-alice-disposable-1"
+
+    def query_rag(self, base_url: str, session: UserSession, prompt: str, files: Optional[List[Dict[str, str]]] = None):
+        # CVE-2026-44560: get_sources_from_items() unauthorized file attachment bypass in chat completions
+        if "CVE-2026-44560" in self.vulnerabilities and files:
+            for f in files:
+                if f.get("type") in ("file", "collection"):
+                    return (
+                        f"RAG chat completion leak from get_sources_from_items(): {self.canary_str}",
+                        [self.canary_str],
+                        {"sources": [{"document": [self.canary_str]}]},
+                    )
         return ("Clean query response: access denied.", [], {})
 
     def query_resource_direct(self, base_url: str, session: UserSession, resource_ref: str, k: int = 50):
@@ -107,11 +159,45 @@ class VersionLadderSimulatedAdapter(TargetAdapter):
 
         return ("403 Forbidden", [], {"code": 403})
 
-    def overwrite_resource(self, base_url: str, session: UserSession, resource_ref: str, payload: str):
+    def query_collection(self, base_url: str, session: UserSession, collection_names: List[str], query: str = "anything", k: int = 10, hybrid: bool = False):
+        ref = collection_names[0] if collection_names else ""
+        return self.query_resource_direct(base_url, session, ref, k=k)
+
+    def query_doc(self, base_url: str, session: UserSession, collection_name: str, query: str = "anything", k: int = 10):
+        return self.query_resource_direct(base_url, session, collection_name, k=k)
+
+    def overwrite_resource(
+        self,
+        base_url: str,
+        session: UserSession,
+        resource_ref: str,
+        payload: str,
+        collection_name: Optional[str] = None,
+        file_model: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         # CVE-2026-28788: cross-user file overwrite
         if "CVE-2026-28788" in self.vulnerabilities:
-            return {"status": True, "overwritten": True}
-        return {"error": "Access denied", "code": 403}
+            self._last_overwritten_payload = payload
+            return {
+                "results": [{"file_id": resource_ref, "status": "completed"}],
+                "errors": [],
+            }
+        return {
+            "results": [],
+            "errors": [
+                {
+                    "file_id": resource_ref,
+                    "status": "failed",
+                    "error": "Permission denied: not file owner",
+                }
+            ],
+        }
+
+    def read_file_content(self, base_url: str, session: UserSession, file_id: str):
+        if "CVE-2026-28788" in self.vulnerabilities and getattr(self, "_last_overwritten_payload", None):
+            return self._last_overwritten_payload
+        return f"Original clean content of file {file_id}"
 
     def enumerate_resources(self, base_url: str, session: UserSession):
         return []
@@ -130,36 +216,56 @@ class VersionLadderSimulatedAdapter(TargetAdapter):
 class VersionBenchmarkResult:
     """Benchmark outcome for a single version tag."""
     version: str
+    target_mode: str
+    image_ref: str
+    probe_version: str
     expected_vulnerabilities: List[str]
     detected_vulnerabilities: List[str]
     false_positives: List[str]
+    canary_evidence: List[str]
     execution_time_seconds: float
     passed_ladder_gate: bool
+    timestamp: str
 
 
 @dataclass
 class BenchmarkSuiteReport:
     """Aggregated empirical benchmark metrics across the entire version ladder."""
+    target_mode: str
+    benchmark_note: str
     total_versions_tested: int
-    cve_detection_rate: float
+    simulated_scenario_pass_rate: float
     total_false_positives: int
     mean_execution_time_seconds: float
     results: List[VersionBenchmarkResult] = field(default_factory=list)
 
+    @property
+    def cve_detection_rate(self) -> float:
+        """Backward-compatible alias for simulated_scenario_pass_rate."""
+        return self.simulated_scenario_pass_rate
+
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "target_mode": self.target_mode,
+            "benchmark_note": self.benchmark_note,
             "total_versions_tested": self.total_versions_tested,
-            "cve_detection_rate_pct": round(self.cve_detection_rate, 2),
+            "simulated_scenario_pass_rate_pct": round(self.simulated_scenario_pass_rate, 2),
+            "cve_detection_rate_pct": round(self.simulated_scenario_pass_rate, 2),
             "total_false_positives": self.total_false_positives,
             "mean_execution_time_seconds": round(self.mean_execution_time_seconds, 4),
             "results": [
                 {
                     "version": r.version,
+                    "target_mode": r.target_mode,
+                    "image_ref": r.image_ref,
+                    "probe_version": r.probe_version,
                     "expected": r.expected_vulnerabilities,
                     "detected": r.detected_vulnerabilities,
                     "false_positives": r.false_positives,
+                    "canary_evidence": r.canary_evidence,
                     "execution_time_s": round(r.execution_time_seconds, 4),
                     "passed": r.passed_ladder_gate,
+                    "timestamp": r.timestamp,
                 }
                 for r in self.results
             ],
@@ -169,8 +275,13 @@ class BenchmarkSuiteReport:
 def run_benchmark_ladder() -> BenchmarkSuiteReport:
     """
     Executes the version ladder benchmark suite against the 5 canonical Open WebUI release milestones.
+    Explicitly labeled as in-memory behavioral simulation.
     """
-    engine = ProbingEngine()
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    probe_ver = "0.2.0"
+
+    engine = ProbingEngine(run_id="ladder-sim-run")
     decoys = engine.generate_decoys(count=2, owner="Alice")
     planted_tokens = [c for d in decoys for c in d.canaries]
 
@@ -208,10 +319,12 @@ def run_benchmark_ladder() -> BenchmarkSuiteReport:
 
         expected = sorted(list(VERSION_CVE_VULNERABILITIES.get(tag, set())))
         detected = []
+        canary_evidence = []
         for r in probe_results:
             cve_id = r.probe_category.replace("cve_regression:", "")
             if r.is_leak:
                 detected.append(cve_id)
+                canary_evidence.extend(r.leaked_canaries)
 
         detected = sorted(detected)
         false_positives = [d for d in detected if d not in expected]
@@ -224,11 +337,16 @@ def run_benchmark_ladder() -> BenchmarkSuiteReport:
         version_results.append(
             VersionBenchmarkResult(
                 version=tag,
+                target_mode="simulated_in_memory",
+                image_ref=f"ghcr.io/open-webui/open-webui:{tag} (simulated)",
+                probe_version=probe_ver,
                 expected_vulnerabilities=expected,
                 detected_vulnerabilities=detected,
                 false_positives=false_positives,
+                canary_evidence=canary_evidence,
                 execution_time_seconds=duration,
                 passed_ladder_gate=passed,
+                timestamp=now_iso,
             )
         )
 
@@ -236,8 +354,10 @@ def run_benchmark_ladder() -> BenchmarkSuiteReport:
     mean_duration = total_duration / len(ladder_tags) if ladder_tags else 0.0
 
     return BenchmarkSuiteReport(
+        target_mode="simulated_in_memory",
+        benchmark_note="In-memory behavioral simulation benchmark verifying probe detection boundaries. Not live container execution.",
         total_versions_tested=len(ladder_tags),
-        cve_detection_rate=detection_rate,
+        simulated_scenario_pass_rate=detection_rate,
         total_false_positives=total_false_positives,
         mean_execution_time_seconds=mean_duration,
         results=version_results,
@@ -247,11 +367,12 @@ def run_benchmark_ladder() -> BenchmarkSuiteReport:
 def render_benchmark_report(report: BenchmarkSuiteReport) -> None:
     """Renders the empirical benchmark ladder results table."""
     table = Table(
-        title="🛡️ Open WebUI Version Ladder Benchmark Metrics",
+        title="🛡️ Open WebUI Version Ladder Benchmark (SIMULATION)",
         border_style="cyan",
         header_style="bold cyan",
     )
     table.add_column("Release Tag", style="bold white")
+    table.add_column("Target Mode", style="dim")
     table.add_column("Expected CVEs", style="yellow")
     table.add_column("Detected Breaches", style="bold red")
     table.add_column("False Positives", style="green")
@@ -265,9 +386,16 @@ def render_benchmark_report(report: BenchmarkSuiteReport) -> None:
         lat_str = f"{r.execution_time_seconds:.4f}s"
         status_str = "[bold green][+] PASSED[/bold green]" if r.passed_ladder_gate else "[bold red][🚨] FAILED[/bold red]"
 
-        table.add_row(r.version, exp_str, det_str, fp_str, lat_str, status_str)
+        table.add_row(r.version, "simulated", exp_str, det_str, fp_str, lat_str, status_str)
 
     console.print("\n", table)
+
+    console.print(
+        "[bold yellow][!] Benchmark Notice:[/bold yellow] "
+        "[dim]This benchmark runs against in-memory behavioral simulations (VersionLadderSimulatedAdapter) "
+        "to verify deterministic probe gating and zero false positive guarantees. Live container deployment validation "
+        "requires an external Docker daemon.[/dim]\n"
+    )
 
     summary_table = Table(
         title="📊 Benchmark Summary Metrics",
@@ -277,8 +405,9 @@ def render_benchmark_report(report: BenchmarkSuiteReport) -> None:
     summary_table.add_column("Metric", style="white")
     summary_table.add_column("Value", style="bold green")
 
+    summary_table.add_row("Execution Mode", "Simulated In-Memory (No Live Containers)")
     summary_table.add_row("Total Releases Audited", str(report.total_versions_tested))
-    summary_table.add_row("CVE Detection Rate", f"{report.cve_detection_rate:.1f}% (Zero Misses)")
+    summary_table.add_row("Simulated Scenario Pass Rate", f"{report.simulated_scenario_pass_rate:.1f}% (Zero Misses)")
     summary_table.add_row("False Positive Count", f"{report.total_false_positives} (Zero False Alarms)")
     summary_table.add_row("Mean Execution Time per Suite", f"{report.mean_execution_time_seconds:.4f}s")
 

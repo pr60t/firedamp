@@ -32,6 +32,7 @@ class AuthorizationStatus(str, Enum):
     BYPASS_LEAK = "BYPASS_LEAK"      # Canary leaked across boundary
     BYPASS_STRUCTURAL = "BYPASS"     # 200 OK with identical response structure/data
     ANOMALY = "ANOMALY"              # Unexpected status or partial mismatch
+    INCONCLUSIVE = "INCONCLUSIVE"    # Owner baseline or required target could not be verified
 
 
 @dataclass
@@ -64,6 +65,10 @@ class CellEvaluation:
     def is_violation(self) -> bool:
         return self.auth_status in (AuthorizationStatus.BYPASS_LEAK, AuthorizationStatus.BYPASS_STRUCTURAL)
 
+    @property
+    def is_inconclusive(self) -> bool:
+        return self.auth_status == AuthorizationStatus.INCONCLUSIVE
+
 
 @dataclass
 class MatrixReport:
@@ -75,6 +80,7 @@ class MatrixReport:
     grid: List[CellEvaluation]
     total_violations: int = 0
     passed: bool = True
+    inconclusive_count: int = 0
 
 
 class StructuralDiffComparator:
@@ -190,16 +196,15 @@ class AuthorizationMatrixRunner:
         planted_canaries: Optional[List[CanaryToken]] = None,
         dry_run: bool = False,
     ) -> MatrixReport:
-        """
-        Executes the authorization matrix across Owner, Intruder, Ex-Member, and Anonymous.
+        """Run read-only authorization checks after capturing an owner baseline.
+
+        Destructive overwrite and DELETE operations are intentionally excluded from
+        this matrix. They require a dedicated disposable-resource lifecycle and are
+        exercised by separately guarded probes.
         """
         base = base_url.rstrip("/")
         canaries = planted_canaries or []
-
-        # Build anonymous session (no tokens, no auth headers)
         anon_session = UserSession(username="anonymous", role="anonymous", token=None, headers={})
-
-        # Build ex-member session if not supplied
         if not charlie:
             charlie = UserSession(
                 username="charlie_exmember",
@@ -208,12 +213,68 @@ class AuthorizationMatrixRunner:
                 headers={"Authorization": "Bearer charlie-revoked-token"} if dry_run else {},
             )
 
-        alice_file_ids = alice.metadata.get("file_ids", [])
-        alice_kb_ids = alice.metadata.get("knowledge_ids", [])
-        file_id = alice_file_ids[0] if alice_file_ids else "file-alice-target"
-        kb_id = alice_kb_ids[0] if alice_kb_ids else "kb-alice-uuid"
+        alice_metadata = alice.metadata if isinstance(alice.metadata, dict) else {}
+        alice_file_ids = alice_metadata.get("file_ids", [])
+        alice_kb_ids = alice_metadata.get("knowledge_ids", [])
+        file_id = alice_file_ids[0] if isinstance(alice_file_ids, list) and alice_file_ids else None
+        kb_id = alice_kb_ids[0] if isinstance(alice_kb_ids, list) and alice_kb_ids else None
 
-        # 1. Define standard operations across the RAG attack surface
+        replayed_actors = [
+            (ActorRole.INTRUDER, bob),
+            (ActorRole.EX_MEMBER, charlie),
+            (ActorRole.ANONYMOUS, anon_session),
+        ]
+
+        def inconclusive_report(reason: str) -> MatrixReport:
+            cells = [
+                CellEvaluation(
+                    op_id="matrix_precondition",
+                    op_name="Read-only matrix precondition",
+                    actor_role=role,
+                    http_status=0,
+                    auth_status=AuthorizationStatus.INCONCLUSIVE,
+                    details=reason,
+                )
+                for role, _ in replayed_actors
+            ]
+            return MatrixReport(
+                target_name=getattr(adapter, "target_name", "target"),
+                target_url=base_url,
+                operations=["Read-only matrix precondition"],
+                actors=[role for role, _ in replayed_actors],
+                grid=cells,
+                total_violations=0,
+                passed=False,
+                inconclusive_count=len(cells),
+            )
+
+        if not dry_run:
+            if not isinstance(file_id, str) or not file_id.strip():
+                return inconclusive_report("INCONCLUSIVE: Alice has no verified file ID; no placeholder target will be used.")
+            file_id = file_id.strip()
+            # Resolve the exact KB containing this file. A first-KB heuristic can compare
+            # the file against an unrelated collection and create misleading baselines.
+            try:
+                from probes.knowledge_membership import resolve_file_knowledge_base
+                resolved_kb, resolution_error = resolve_file_knowledge_base(
+                    adapter=adapter,
+                    base_url=base,
+                    session=alice,
+                    target_file_id=file_id,
+                )
+            except Exception as exc:
+                resolved_kb, resolution_error = None, str(exc)
+            if not resolved_kb:
+                return inconclusive_report(
+                    f"INCONCLUSIVE: Exact file-to-KB membership could not be established: {resolution_error}"
+                )
+            kb_id = resolved_kb
+        else:
+            file_id = file_id if isinstance(file_id, str) and file_id else "dry-run-file"
+            kb_id = kb_id if isinstance(kb_id, str) and kb_id else "dry-run-kb"
+
+        # Only read-only operations are included. The vector retrieval endpoint
+        # uses POST but performs a query; chat/completion and all mutation routes are excluded.
         operations: List[RecordedOperation] = [
             RecordedOperation(
                 op_id="op_file_inspect",
@@ -223,9 +284,9 @@ class AuthorizationMatrixRunner:
             ),
             RecordedOperation(
                 op_id="op_file_content",
-                name="File Raw Content (GET /api/v1/files/{id}/content)",
+                name="Indexed File Content (GET /api/v1/files/{id}/data/content)",
                 method="GET",
-                path=f"/api/v1/files/{file_id}/content",
+                path=f"/api/v1/files/{file_id}/data/content",
             ),
             RecordedOperation(
                 op_id="op_kb_inspect",
@@ -235,109 +296,118 @@ class AuthorizationMatrixRunner:
             ),
             RecordedOperation(
                 op_id="op_vector_query",
-                name="Vector Retrieval Query (POST /api/v1/retrieval/query)",
+                name="Vector Retrieval Query (POST /api/v1/retrieval/query/collection)",
                 method="POST",
-                path="/api/v1/retrieval/query",
+                path="/api/v1/retrieval/query/collection",
                 payload={"collection_names": [kb_id], "query": "canary confidential summary", "k": 10},
             ),
-            RecordedOperation(
-                op_id="op_chat_completions",
-                name="Chat Completions Context (POST /api/chat/completions)",
-                method="POST",
-                path="/api/chat/completions",
-                payload={
-                    "model": getattr(adapter, "DEFAULT_MODEL", "llama3:8b"),
-                    "messages": [{"role": "user", "content": "Summarize private files."}],
-                    "files": [{"type": "collection", "id": kb_id}],
-                },
-            ),
-            RecordedOperation(
-                op_id="op_batch_overwrite",
-                name="Batch File Overwrite (POST /api/v1/files/batch/process)",
-                method="POST",
-                path="/api/v1/files/batch/process",
-                payload={"file_id": file_id, "content": "POISON_TEST"},
-            ),
-            RecordedOperation(
-                op_id="op_file_delete",
-                name="File Deletion (DELETE /api/v1/files/{id})",
-                method="DELETE",
-                path=f"/api/v1/files/{file_id}",
-            ),
-        ]
-
-        # In dry run, simulate realistic authorized owner responses and enforced non-owner responses
-        replayed_actors = [
-            (ActorRole.INTRUDER, bob),
-            (ActorRole.EX_MEMBER, charlie),
-            (ActorRole.ANONYMOUS, anon_session),
         ]
 
         grid_results: List[CellEvaluation] = []
         violations_count = 0
+        inconclusive_count = 0
 
         for op in operations:
-            owner_resp = {"id": file_id, "name": "canary.md", "status": "completed"} if dry_run else {}
+            if dry_run:
+                owner_resp = {"id": file_id, "name": "canary.md", "status": "completed"}
+                owner_status = 200
+            else:
+                # Capture a positive, authorized baseline for this exact operation.
+                try:
+                    owner_raw = adapter._json_request(
+                        url=f"{base}{op.path}",
+                        method=op.method,
+                        data=op.payload,
+                        headers=alice.headers,
+                        timeout=30,
+                    )
+                except Exception as exc:
+                    owner_raw = {"error": str(exc), "code": 0}
+                if isinstance(owner_raw, dict) and "error" not in owner_raw:
+                    owner_resp = owner_raw
+                    owner_status = owner_raw.get("code", 200)
+                else:
+                    # Malformed/non-dict owner responses cannot establish a usable baseline.
+                    owner_resp = owner_raw if isinstance(owner_raw, dict) else {"error": "Malformed owner baseline response"}
+                    owner_status = owner_raw.get("code", 400) if isinstance(owner_raw, dict) else 0
+
+                if not isinstance(owner_status, int) or owner_status < 200 or owner_status >= 300 or "error" in owner_resp:
+                    for role, _actor_session in replayed_actors:
+                        grid_results.append(CellEvaluation(
+                            op_id=op.op_id,
+                            op_name=op.name,
+                            actor_role=role,
+                            http_status=owner_status if isinstance(owner_status, int) else 0,
+                            auth_status=AuthorizationStatus.INCONCLUSIVE,
+                            details=f"INCONCLUSIVE: Owner baseline could not be established for this operation: {owner_resp.get('error', 'unexpected owner response')}",
+                        ))
+                        inconclusive_count += 1
+                    continue
 
             for role, actor_session in replayed_actors:
                 if dry_run:
-                    # Simulation behavior: Enforce 401 for Anonymous, 403 for Intruder & Ex-Member
                     sim_status = 401 if role == ActorRole.ANONYMOUS else 403
                     sim_resp = {"error": "Unauthorized", "code": sim_status}
                     auth_status = AuthorizationStatus.ENFORCED
+                    leaked: List[str] = []
+                    overlap = 0.0
                     details = f"Blocked with HTTP {sim_status}"
-                    cell = CellEvaluation(
-                        op_id=op.op_id,
-                        op_name=op.name,
-                        actor_role=role,
-                        http_status=sim_status,
-                        auth_status=auth_status,
-                        canaries_leaked=[],
-                        key_overlap_ratio=0.0,
-                        details=details,
-                    )
+                    status_code = sim_status
                 else:
-                    # Live execution: execute HTTP call using actor_session headers
-                    url = f"{base}{op.path}"
-                    res = adapter._json_request(
-                        url=url,
-                        method=op.method,
-                        data=op.payload,
-                        headers=actor_session.headers,
-                        timeout=30,
-                    )
-                    status_code = res.get("code", 200 if "error" not in res else 400)
+                    try:
+                        replayed_raw = adapter._json_request(
+                            url=f"{base}{op.path}",
+                            method=op.method,
+                            data=op.payload,
+                            headers=actor_session.headers,
+                            timeout=30,
+                        )
+                    except Exception as exc:
+                        replayed_raw = {"error": str(exc), "code": 0}
+                    if isinstance(replayed_raw, dict):
+                        sim_resp = replayed_raw
+                        status_code = replayed_raw.get("code", 400 if "error" in replayed_raw else 200)
+                    else:
+                        sim_resp = {"response": replayed_raw}
+                        status_code = 200
+                    if not isinstance(status_code, int):
+                        status_code = 0
                     auth_status, leaked, overlap, details = StructuralDiffComparator.evaluate(
                         owner_resp=owner_resp,
                         replayed_status=status_code,
-                        replayed_resp=res,
+                        replayed_resp=sim_resp,
                         replayed_contexts=[],
                         planted_canaries=canaries,
                         engine=self.engine,
                     )
-                    cell = CellEvaluation(
-                        op_id=op.op_id,
-                        op_name=op.name,
-                        actor_role=role,
-                        http_status=status_code,
-                        auth_status=auth_status,
-                        canaries_leaked=leaked,
-                        key_overlap_ratio=overlap,
-                        details=details,
-                    )
 
+                cell = CellEvaluation(
+                    op_id=op.op_id,
+                    op_name=op.name,
+                    actor_role=role,
+                    http_status=status_code,
+                    auth_status=auth_status,
+                    canaries_leaked=leaked,
+                    key_overlap_ratio=overlap,
+                    details=details,
+                )
                 if cell.is_violation:
                     violations_count += 1
-
+                if cell.is_inconclusive:
+                    inconclusive_count += 1
                 grid_results.append(cell)
 
+        passed = violations_count == 0 and inconclusive_count == 0 and all(
+            cell.auth_status == AuthorizationStatus.ENFORCED for cell in grid_results
+        )
         return MatrixReport(
             target_name=getattr(adapter, "target_name", "target"),
             target_url=base_url,
             operations=[op.name for op in operations],
-            actors=[r[0] for r in replayed_actors],
+            actors=[role for role, _ in replayed_actors],
             grid=grid_results,
             total_violations=violations_count,
-            passed=(violations_count == 0),
+            passed=passed,
+            inconclusive_count=inconclusive_count,
         )
 

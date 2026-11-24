@@ -3,15 +3,16 @@
 </p>
 
 <p align="center">
-  <strong>Automated cross-tenant data leakage detection, boundary auditing, and vulnerability regression testing for RAG & AI platforms.</strong>
+  <strong>Behavioral security regression and cross-tenant isolation testing framework for RAG & AI platforms.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/pr60t/firedamp/wiki">📖 Wiki</a> •
+  <a href="wiki/CVE-Regression-Engine.md">🛡️ CVE Engine</a> •
+  <a href="wiki/Version-Ladder-Benchmark.md">📊 Version Ladder</a> •
   <a href="#quickstart">⚡ Quickstart</a> •
-  <a href="https://github.com/pr60t/firedamp/wiki/CVE-Regression-Engine">🛡️ CVE Engine</a> •
-  <a href="https://github.com/pr60t/firedamp/wiki/API-Authorization-Matrix">🧭 Auth Matrix</a> •
-  <a href="https://github.com/pr60t/firedamp/wiki/CLI-Reference">💻 CLI Reference</a>
+  <a href="#live-cve-2026-28788-differential-validation">🔬 Live Validation</a> •
+  <a href="tests/integration/openwebui_cve_2026_28788/README.md">🧪 Integration Lab</a> •
+  <a href="CVE_AUDIT.md">📋 CVE Audit</a>
 </p>
 
 ---
@@ -27,33 +28,176 @@
                     \_________/
 ```
 
-Named after **firedamp**—the odorless, explosive mine gas detected with caged canaries—**Firedamp** automatically catches cross-tenant data leakage and authorization failures in Retrieval-Augmented Generation (RAG) platforms before adversaries or auditors do.
-
-### The Attack & Audit Cycle
-1. **Plant:** Injects verifiable, high-entropy cryptographic **canary tokens** into private documents owned by **Alice**.
-2. **Probe:** Dispatches multi-channel exfiltration and historical CVE regression probes as an unauthorized tenant (**Bob**).
-3. **Detect:** Deterministically flags any tokens exposed in model responses, citation chunks, metadata, direct vector searches, or batch mutations.
+Named after **firedamp**—the combustible mine gas historically detected using caged canaries—**Firedamp** evaluates cross-tenant data isolation, authorization boundaries, and security regression resistance in Retrieval-Augmented Generation (RAG) platforms.
 
 ---
 
-## Key Capabilities
+## 🔬 Core Capabilities
 
-- 🔬 **Deterministic Zero-VRAM Assertions**: Cryptographic exact string matching evaluates token presence without LLM judges, GPU requirements, or latency overhead. *(A clean result indicates no leaks were found in the tested channels, not that isolation is mathematically proven).*
-- 🛡️ **Tier-1 CVE Regression Suite**: Automated behavioral fixtures for known RAG authorization flaws (IDOR/BOLA routes, raw UUID bypasses, cross-user write overwrites, and vector filter injections).
-- 🧭 **API Authorization Matrix (RAG Autorize)**: Automated request capture & replay testing across Owner, Intruder, Ex-Member, and Anonymous personas with structural diffing and canary detection (`--suite auth-matrix`).
-- ⚡ **Time & Sequence Lifecycle Probes**: Tests race conditions during concurrent revocation, post-revocation cache staleness, and delete-while-indexing orphan chunk leaks (`--scenario lifecycle`).
-- 💉 **Write-Side Poisoning Probes**: Verifies cross-tenant integrity by detecting if unauthorized injection or overwrites bleed into legitimate queries (`--scenario write-poisoning`).
-- 🧠 **Agent Memory & Tool Cache Probes**: Audits persistent agent memory routes (`user-memory-*`) and tests MCP/tool cache isolation to prevent cross-tenant semantic bleed (`--scenario agent-memory`).
-- ⚙️ **Configuration Matrix Testing**: Validates isolation boundaries across varying vector backends (`--vector-db chroma|milvus|qdrant`) and partitioning models (`--multitenancy shared|isolated`).
-- 🧩 **Modular Adapter Architecture**: Decomposed platform drivers (`auth`, `ingest`, `query`, `lifecycle`). **Open WebUI supported today. Dify, Flowise, and Langflow are planned.**
-- 👥 **Multi-Tenant Persona Simulation**: Automated session orchestration managing authenticated data owners (Alice) and unauthorized queriers (Bob).
-- 📊 **Firedamp Index (0–100)**: Quantitative risk score derived strictly from probe ratio, canary penetration, and severity weighting. **Any canary leak is a hard fail.**
-- 📜 **Policy-as-Code & CI/CD Gate**: Declarative YAML security thresholds (`--policy policies/enterprise.yaml`) with native non-zero exit codes (`--fail-on-leak`), reusable GitHub Action, and SARIF export.
-- 🏆 **Version Ladder Benchmark**: 100% CVE detection rate and 0 false positives validated against 5 historical Open WebUI release milestones (`python3 tests/benchmark_ladder.py`).
+Firedamp executes automated, non-weaponized behavioral probes across the retrieval and ingestion lifecycle:
+
+- **Cross-Tenant Authorization Testing**: Simulates authenticated data owners (**Alice**) and unprivileged foreign queriers (**Bob**) to detect unauthorized data access across tenant boundaries.
+- **Behavioral CVE Regression Probes**: Automates deterministic regression fixtures for known RAG and vector-retrieval vulnerabilities.
+- **Read-Side Retrieval & Write-Side Mutation Probing**: Tests read routes (direct vector retrieval, chat completions RAG) and write routes (cross-user batch file overwrites and collection injections).
+- **API Authorization Matrix (RAG Autorize)**: Replays owner requests across Intruder, Ex-Member, and Anonymous personas to evaluate status codes and structural response diffs (`--suite auth-matrix`).
+- **Exact Knowledge-Base Membership Resolution**: Authoritatively establishes file-to-KB relationships using server-side enumeration, complete pagination, and candidate validation before testing.
+- **Scan-Scoped Disposable Tracking & Safe Cleanup**: Tracks ephemeral scan artifacts via an in-memory trusted registry (`_TRUSTED_SCAN_REGISTRY`), rechecks authenticated server-side ownership before deletion, and never deletes pre-existing knowledge bases.
+- **Deterministic Verdict Classification**: Evaluates leak severity (`NONE`, `CONTEXT_LEAK`, `DIRECT_LEAK`, `CRITICAL`) using high-entropy canary tokens and classifies outcomes into unambiguous states: `CLEAN`, `COMPROMISED`, or fail-closed `INCONCLUSIVE`.
 
 ---
 
-## Architecture Overview
+## 🛡️ Curated CVE Coverage
+
+Firedamp maintains an audited 21-vulnerability catalog. Catalog entries are classified into three distinct categories to avoid conflating executable tests with historical references:
+
+1. **4 Implemented Executable Probes (Tier 1)**: Fully automated Python behavioral probes with test fixtures and simulation coverage targeting Open WebUI:
+   - **`CVE-2026-44560`** (*Open WebUI <= 0.8.12, fixed in 0.9.0*): Direct collection vector retrieval authorization bypass in RAG chat completions (`POST /api/chat/completions`) via predictable collection identifiers (`file-<id>`) in `get_sources_from_items()`. Application-layer authorization bypass; backend-agnostic (not an OpenSearch vulnerability).
+   - **`CVE-2026-45398`** (*Open WebUI <= 0.9.4, fixed in 0.9.5*): Knowledge base raw UUID prefix validation bypass in collection retrieval routes (`POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc`) via `_validate_collection_access()` (scoped to retrieval read-side access). Application-layer authorization bypass; backend-agnostic (not a Chroma vulnerability).
+   - **`CVE-2026-28788`** (*Open WebUI < 0.8.6, fixed in 0.8.6*): Cross-user batch file overwrite in ingestion (`POST /api/v1/retrieval/process/files/batch`) due to missing server-side file ownership checks. Application-layer write-mutation flaw.
+   - **`CVE-2026-54019`** (*Open WebUI < 0.9.6, fixed in 0.9.6*): Vector store query interpolation flaw when deployed with the Milvus multitenancy backend (`precondition: milvus_multitenancy`). Unescaped `resource_id` string concatenation in `POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc` allows boolean-true filter injection (`x' or resource_id != '' or resource_id == 'x`), causing cross-tenant retrieval. Flaw in Open WebUI's Milvus integration under multitenancy (not Qdrant, and not a standalone Milvus database flaw).
+2. **7 Documented Vulnerabilities**: Authoritatively verified RAG/AI vulnerabilities tracked for catalog completeness without executable probe implementations in this repository (`CVE-2026-45301`, `CVE-2026-44557`, `CVE-2026-54016`, `CVE-2026-54010`, `CVE-2026-45349`, `CVE-2026-44561`, `CVE-2024-31621`).
+3. **10 Quarantined Historical Misattributions**: Third-party packages erroneously linked to RAG products in public databases, forensically quarantined and documented in [`CVE_AUDIT.md`](CVE_AUDIT.md) (`CVE-2024-52306`, `CVE-2024-52307`, `CVE-2024-41133`, `CVE-2024-43407`, `CVE-2024-52308`, `CVE-2024-45388`, `CVE-2024-45389`, `CVE-2024-42475`, `CVE-2024-45391`, `CVE-2024-34359`).
+
+---
+
+## 🔬 Live CVE-2026-28788 Differential Validation
+
+Firedamp was executed against pinned, live Docker containers of Open WebUI to empirically validate the fix for **CVE-2026-28788** (cross-user batch file overwrite):
+
+| Target Container | Pinned Upstream Image Reference | Actual Firedamp Result | Interpretation |
+| :--- | :--- | :---: | :--- |
+| **Open WebUI v0.8.5** | `ghcr.io/open-webui/open-webui:v0.8.5@sha256:6251d208...` | **COMPROMISED** | Unauthorized cross-user overwrite reproduced; Bob mutated Alice's file |
+| **Open WebUI v0.8.6** | `ghcr.io/open-webui/open-webui:v0.8.6@sha256:4938a90d...` | **CLEAN** | Ownership enforcement blocked overwrite; Alice's content remained intact |
+
+### Technical Details of the Experiment
+- **Vulnerable Route**: `POST /api/v1/retrieval/process/files/batch`.
+- **Attack Mechanism**: Bob (unprivileged authenticated tenant) submitted a modified `FileModel` referencing Alice's target `file_id` and collection name.
+- **v0.8.5 Outcome**: The batch endpoint accepted the payload without checking whether `file.user_id == user.id`. Firedamp independently read back Alice's file content (`GET /api/v1/files/{id}/content` as Alice) and detected Bob's tracer canary token (`direct_leak`, `is_vulnerable = true`).
+- **v0.8.6 Outcome**: The patched batch endpoint returned a per-file rejection: `Permission denied: not file owner`.
+- **HTTP Status Notice**: The patched upstream endpoint returned an overall HTTP 200 response with the rejection reported in the JSON `errors` list; it did **not** return an HTTP 403 status code.
+- **Data Integrity Verification**: Alice's original 302-byte document content and baseline SHA-256 digest (`b8fe905c936d2f95065012f079a6637825559561b03a52967cf7de42136bf2de`) remained unaltered on v0.8.6.
+- **Cleanup & Isolation Verification**: Post-probe restoration returned the victim file to its baseline, removed probe vectors, preserved 3 neighboring tenant files, and confirmed knowledge-base membership remained at 4 files.
+
+> [!NOTE]
+> **Evidence Provenance & Retention Architecture:**
+> - **Operator-Reported Live Results**: The differential validation results above reflect empirical container execution against pinned upstream Docker images (`ghcr.io/open-webui/open-webui:v0.8.5` and `v0.8.6`) conducted by authorized operators using loopback-isolated integration scripts (`reproduce_cve.py` and `run_firedamp_probe.py`).
+> - **External Raw Evidence Archive**: To keep the source repository lightweight and prevent large ephemeral runtime outputs from entering version control, raw execution reports (`firedamp-v085.json`, `firedamp-v086.json`, `reproduce-v085.json`, and `reproduce-v086.json`) are retained externally in sanitized evidence archives (`~/firedamp-evidence/cve-2026-28788/` on operator environments). Cryptographic SHA-256 snapshots of these inspected raw reports are permanently recorded for auditability in [`CVE_AUDIT.md`](CVE_AUDIT.md).
+> - **Repository-Relative Assets & Reproducibility**: The repository includes the complete Docker orchestration harness ([`tests/integration/openwebui_cve_2026_28788/compose.yaml`](tests/integration/openwebui_cve_2026_28788/compose.yaml)), preflight checks, lab setup scripts, and directory structures documented in [`tests/integration/openwebui_cve_2026_28788/README.md`](tests/integration/openwebui_cve_2026_28788/README.md).
+> - **Independently Reproduced Offline Simulations**: Developers and CI environments without a Docker daemon can independently reproduce and verify all verdict classification logic, pre-write safety gates, and response parser contracts using the hermetic offline simulation suite in [`tests/integration/openwebui_cve_2026_28788/simulations/`](tests/integration/openwebui_cve_2026_28788/simulations/) (`68 passed`).
+>
+> Full forensic audit logs, timeline registries, and resolver architectures are documented in:
+> - [`wiki/CVE-Regression-Engine.md`](wiki/CVE-Regression-Engine.md)
+> - [`CVE_AUDIT.md`](CVE_AUDIT.md)
+> - [`FINAL_AUDIT.md`](FINAL_AUDIT.md)
+> - [`FINAL_AUDIT_REMEDIATION.md`](FINAL_AUDIT_REMEDIATION.md)
+
+---
+
+## 🧪 Safe Integration Lab (CVE-2026-28788)
+
+The repository provides an isolated local test harness in [`tests/integration/openwebui_cve_2026_28788/`](tests/integration/openwebui_cve_2026_28788/):
+
+- **Pinned Versions**: Open WebUI `v0.8.5` (port 13085) and `v0.8.6` (port 13086).
+- **Loopback Enforcement**: Bound strictly to `127.0.0.1` by default via shared `lab_safety.py` guards; non-loopback endpoints require explicit flags.
+- **Target Verification**: Preflight checks verify target identity, version headers, and confirm that Alice and Bob do not share server user IDs or bearer tokens.
+- **Disposable Resource Scoping**: All mutations require unique disposable resource IDs registered in `_TRUSTED_SCAN_REGISTRY` before execution.
+- **Sanitized Evidence Collection**: Automated evidence collection scripts sanitize hostnames, tokens, and machine-specific file paths.
+- **Separation of Modes**: Deterministic offline simulations run without Docker; live lab execution requires explicit container orchestration.
+
+> [!CAUTION]
+> **Safety Warning:** Never execute write-poisoning or destructive probes against production deployments or shared multi-user environments. Use dedicated, disposable local instances. See [`tests/integration/openwebui_cve_2026_28788/README.md`](tests/integration/openwebui_cve_2026_28788/README.md) for lab usage instructions.
+
+---
+
+## 📊 Testing & Evidence Classification
+
+To prevent misleading claims, Firedamp strictly distinguishes between three tiers of verification evidence:
+
+1. **Unit Tests (In-Memory)**: Unit tests evaluate canary synthesis, reporter calculation, AST logic, adapter parsing, and policy evaluation without network calls.
+2. **Offline Integration Simulations**: Deterministic simulations in `tests/integration/openwebui_cve_2026_28788/simulations/` mock complete HTTP request/response payloads (including patched and vulnerable JSON fixtures) to verify classification logic, lab safety rules, and sanitization pipelines without running Docker.
+3. **Live Docker Differential Validation**: Real container executions against pinned upstream Open WebUI images (`v0.8.5` vs `v0.8.6`), independently reading back content and verifying hash integrity.
+
+### Current Test Suite Verification Status
+- **Root Test Suite**: **266 passed** (`python3 -m unittest discover -s tests -v`).
+- **Integration Simulations**: **68 passed** (`python3 -m unittest discover -s tests/integration/openwebui_cve_2026_28788/simulations -v`).
+- **Total Automated Tests**: **334 passed** (0 failures, 0 errors).
+- **Codebase Quality**: Clean Python bytecode compilation (`compileall`) and zero whitespace warnings across all files.
+
+*(Note: Live Docker differential validation was conducted for CVE-2026-28788. Other catalogued CVEs are verified via unit tests and simulation harnesses).*
+
+---
+
+## ⚡ Installation & Usage
+
+<a id="quickstart"></a>
+
+### 1. Prerequisites
+- Python 3.10, 3.11, or 3.12.
+- Git.
+- Docker Engine (optional; required only for running live container targets in the integration lab).
+
+### 2. Setup
+```bash
+# Clone the repository
+git clone https://github.com/pr60t/firedamp.git
+cd firedamp
+
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install Firedamp in editable mode with development dependencies
+pip install -e ".[dev]"
+```
+
+### 3. Basic Commands
+
+#### Display Help
+```bash
+firedamp --help
+# or run directly:
+python3 cli.py --help
+```
+
+#### Run a Simulation (Dry-Run Mode)
+Execute the complete probing, detection, and reporting pipeline in simulation mode without external containers or network access:
+```bash
+firedamp scan --dry-run
+```
+
+#### Run the Version Ladder Benchmark Simulation
+Evaluate detection accuracy and zero-false-positive guarantees against historical milestone definitions:
+```bash
+python3 tests/benchmark_ladder.py
+```
+
+#### Run the Automated Test Suites
+```bash
+# Run root test suite (266 tests)
+python3 -m unittest discover -s tests -v
+
+# Run integration simulation suite (68 tests)
+python3 -m unittest discover -s tests/integration/openwebui_cve_2026_28788/simulations -v
+```
+
+#### Run Probing Against an Existing Local Deployment
+```bash
+# Run curated Tier-1 CVE regression probes
+firedamp scan --target openwebui --target-url http://localhost:8080 --suite cve-regression
+
+# Run API authorization matrix replay across personas
+firedamp scan --target openwebui --target-url http://localhost:8080 --suite auth-matrix
+
+# Run temporal lifecycle probes (revocation races & post-revocation staleness)
+firedamp scan --target openwebui --target-url http://localhost:8080 --scenario lifecycle
+
+# Run write-side poisoning probes
+firedamp scan --target openwebui --target-url http://localhost:8080 --scenario write-poisoning
+```
+
+---
+
+## 🏗️ Architecture & Probing Channels
 
 ```text
                           ┌──────────────────────────────────────────────┐
@@ -63,7 +207,7 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
                                                  ▼
                           ┌──────────────────────────────────────────────┐
                           │               Orchestration                  │
-                          │   (Docker Provisioning / Remote Airway)      │
+                          │     (Session Management & Safe Airway)       │
                           └──────────────────────┬───────────────────────┘
                                                  │
                         ┌────────────────────────┴────────────────────────┐
@@ -96,8 +240,7 @@ Named after **firedamp**—the odorless, explosive mine gas detected with caged 
                                 └─────────────────────────────────┘
 ```
 
-### Probing Channels & Bug Classes
-Firedamp tests authorization boundaries across 6 distinct transmission channels:
+Firedamp audits tenant isolation across six transmission channels:
 - `direct_api`: Direct REST/RPC calls without prompt orchestration.
 - `llm_prompt`: Adversarial semantic prompts targeting context bleed.
 - `citation_metadata`: Document references, chunk headers, and citation sources.
@@ -107,136 +250,37 @@ Firedamp tests authorization boundaries across 6 distinct transmission channels:
 
 ---
 
-<a id="quickstart"></a>
-## Quickstart
-
-### ⚡ One-Line Install Script
-Install Firedamp directly into `~/.local/bin/firedamp`:
-```bash
-curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
-```
-
-### 🧪 Instant Simulation (No Docker Required)
-Test the full pipeline, UI telemetry, and reporting in simulation mode:
-```bash
-firedamp scan --dry-run
-```
-
-### 🛡️ Historical CVE Regression Probing
-Run behavioral regression probes for known vulnerabilities (e.g. CVE-2026-44560, CVE-2026-45398, CVE-2026-28788):
-```bash
-firedamp scan --target-url http://localhost:8080 --suite cve-regression
-```
-
-### 🧭 API Authorization Matrix (RAG Autorize)
-Replay Owner requests across Intruder, Ex-Member, and Anonymous personas to evaluate status codes and structural key diffs:
-```bash
-firedamp scan --target-url http://localhost:8080 --suite auth-matrix
-```
-
-### ⚡ Temporal & Sequence Scenarios
-Test atomic revocation races, cached authorization staleness, and delete-while-indexing orphan chunk leaks:
-```bash
-firedamp scan --target-url http://localhost:8080 --scenario lifecycle
-```
-
-### 💉 Write-Side Poisoning & Integrity Probes
-Verify whether unauthorized users can inject documents or overwrite resources in other tenants' scopes:
-```bash
-firedamp scan --target-url http://localhost:8080 --scenario write-poisoning
-```
-
-### 🧠 Agent Memory & Tool Cache Scenarios
-Audit persistent user scratchpads and test for MCP tool semantic cache bleed:
-```bash
-firedamp scan --target-url http://localhost:8080 --scenario agent-memory
-```
-
-### ⚙️ Non-Default Vector Database Configurations
-Audit platforms deployed with Milvus or Qdrant multitenancy:
-```bash
-firedamp scan --target-url http://localhost:8080 --vector-db milvus --multitenancy shared --suite all
-```
-
-### 🔍 Comprehensive Multi-Channel Audit
-Audit an existing target with prompt-based extraction and CVE regression combined:
-```bash
-firedamp scan \
-  --target openwebui \
-  --target-url http://localhost:8080 \
-  --suite all \
-  --canaries 4 \
-  --fail-on-leak
-```
-
-> ⚠️ **Permission & Data Notice:** Only test systems you own or have explicit written authorization to audit (disposable local/dev instances recommended). Cleanup removes files, collections, and chats created during the audit; test user accounts (`alice_owner`, `bob_attacker`) remain in the target database.
-
----
-
-## Installation & Local Development
-
-### Prerequisites
-- Python 3.10+
-- Docker Engine (optional, required only for ephemeral container provisioning)
-
-### Setup
-```bash
-# Clone the repository
-git clone https://github.com/pr60t/firedamp.git
-cd firedamp
-
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install in editable mode with development dependencies
-pip install -e ".[dev]"
-```
-
-### Running Tests
-Execute the deterministic test suite:
-```bash
-python3 -m unittest discover tests/ -v
-# or using pytest:
-pytest -v
-```
-
----
-
-## Project Structure
+## 📁 Repository Structure
 
 ```text
 .
 ├── core/                # Canary generation, reporter & target lifecycle
 │   ├── engine.py        # Cryptographic canary engine & zero-VRAM matcher
-│   ├── matrix.py        # RAG Autorize API authorization replay engine
+│   ├── matrix.py        # Read-only authorization matrix replay runner
 │   ├── policy.py        # Declarative Policy-as-Code evaluator
-│   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
-│   └── target.py        # Docker SDK target orchestration & lifecycle
+│   └── reporter.py      # Telemetry rendering, Firedamp Index & exports
 ├── adapters/            # Target platform drivers
 │   ├── base.py          # TargetAdapter abstract protocol & registry
 │   └── openwebui/       # Modular Open WebUI driver (auth, ingest, query, lifecycle)
-├── probes/              # Decoupled behavioral regression suites
-│   ├── schemas/         # 8-Pillar BugClass & ProbeChannel taxonomies
-│   ├── scenarios/       # Lifecycle (Pillar 4), write-poisoning (5), memory (6)
+├── probes/              # Behavioral regression suites & registries
+│   ├── schemas/         # BugClass & ProbeChannel taxonomies
+│   ├── scenarios/       # Lifecycle, write-poisoning, and agent memory scenarios
 │   ├── cves/            # Tier-1 CVE fixtures (CVE-2026-44560, 45398, 28788, 54019)
-│   │   ├── cve_catalog.json # Machine-readable 21-CVE database
-│   │   └── CVE_CATALOG.md   # Attack strategy reference manual
-│   └── cve_registry.py  # Catalog loader and query engine
-├── policies/            # Declarative YAML security policies (default, enterprise)
-├── .github/actions/     # Reusable Firedamp CI/CD GitHub Action
-├── tests/               # Test suites & version ladder benchmark
-├── assets/              # Rendered terminal report vector SVGs
-├── wiki/                # Documentation wiki pages & guides
-├── cli.py               # Typer / argparse CLI entrypoint
-├── install.sh           # Automated shell installer script
-├── pyproject.toml       # PEP 621 package metadata & entrypoints
-├── LICENSE              # MIT License
-└── README.md            # Project documentation & reference
+│   ├── cve_registry.py  # Catalog loader and query engine
+│   ├── disposable_registry.py  # Trusted scan disposable resource tracker
+│   └── knowledge_membership.py # Shared paginated file-to-KB resolver
+├── tests/               # Unit test suites & version ladder benchmark
+│   └── integration/     # CVE-2026-28788 integration lab and offline simulations
+├── wiki/                # Technical guides and architecture documentation
+├── cli.py               # Command-line interface entrypoint
+├── pyproject.toml       # PEP 621 package metadata & dependencies
+├── CVE_AUDIT.md         # Authoritative 21-CVE forensic catalog audit
+├── FINAL_AUDIT.md       # Repository audit findings and status register
+└── README.md            # Project overview and reference manual
 ```
 
 ---
 
-## License
+## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.

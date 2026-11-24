@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "file_id": "disposable-target-f123",
+      "status": "completed",
+      "error": null
+    }
+  ],
+  "errors": [
+    {
+      "file_id": "disposable-target-f123",
+      "status": "failed",
+      "error": "Permission denied: not file owner"
+    }
+  ]
+}

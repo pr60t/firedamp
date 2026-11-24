@@ -13,7 +13,6 @@ from typing import List, Optional
 from adapters.base import TargetAdapter, UserSession
 from core.engine import (
     CanaryToken,
-    DecoyDocument,
     LeakSeverity,
     ProbeResult,
     ProbingEngine,
@@ -56,9 +55,29 @@ def test_revocation_in_flight(
         )
 
     # Identify Alice's target resource reference
-    alice_kb_ids = alice.metadata.get("knowledge_ids", [])
-    alice_file_ids = alice.metadata.get("file_ids", [])
-    target_ref = alice_kb_ids[0] if alice_kb_ids else (alice_file_ids[0] if alice_file_ids else "target-resource-ref")
+    alice_metadata = alice.metadata if isinstance(alice.metadata, dict) else {}
+    alice_kb_ids = alice_metadata.get("knowledge_ids", [])
+    if (
+        not isinstance(alice_kb_ids, list)
+        or not alice_kb_ids
+        or not any(isinstance(kid, str) and kid.strip() for kid in alice_kb_ids)
+    ):
+        logger.warning(
+            "Revocation-in-flight: Alice session lacks valid target knowledge base IDs; cannot establish target collection"
+        )
+        return ProbeResult(
+            probe_id="lifecycle_revocation_flight",
+            probe_prompt=prompt_label,
+            probe_category=category,
+            target_response="INCONCLUSIVE: Alice session lacks valid target knowledge base IDs (knowledge_ids); probe aborted before dispatch",
+            retrieved_contexts=[],
+            leaked_canaries=[],
+            severity=LeakSeverity.NONE,
+            channel=CHANNEL,
+            inconclusive=True,
+        )
+
+    target_ref = next(kid.strip() for kid in alice_kb_ids if isinstance(kid, str) and kid.strip())
 
     # Step 1: Alice shares the resource with Bob
     try:
@@ -141,9 +160,29 @@ def test_post_revocation_staleness(
             channel=CHANNEL,
         )
 
-    alice_kb_ids = alice.metadata.get("knowledge_ids", [])
-    alice_file_ids = alice.metadata.get("file_ids", [])
-    target_ref = alice_kb_ids[0] if alice_kb_ids else (alice_file_ids[0] if alice_file_ids else "target-resource-ref")
+    alice_metadata = alice.metadata if isinstance(alice.metadata, dict) else {}
+    alice_kb_ids = alice_metadata.get("knowledge_ids", [])
+    if (
+        not isinstance(alice_kb_ids, list)
+        or not alice_kb_ids
+        or not any(isinstance(kid, str) and kid.strip() for kid in alice_kb_ids)
+    ):
+        logger.warning(
+            "Post-revocation staleness: Alice session lacks valid target knowledge base IDs; cannot establish target collection"
+        )
+        return ProbeResult(
+            probe_id="lifecycle_post_revocation_staleness",
+            probe_prompt=prompt_label,
+            probe_category=category,
+            target_response="INCONCLUSIVE: Alice session lacks valid target knowledge base IDs (knowledge_ids); probe aborted before dispatch",
+            retrieved_contexts=[],
+            leaked_canaries=[],
+            severity=LeakSeverity.NONE,
+            channel=CHANNEL,
+            inconclusive=True,
+        )
+
+    target_ref = next(kid.strip() for kid in alice_kb_ids if isinstance(kid, str) and kid.strip())
 
     # 1. Share resource with Bob
     adapter.share_resource(base_url, alice, target_ref, bob)
@@ -182,71 +221,30 @@ def test_delete_while_indexing(
     engine: ProbingEngine,
     dry_run: bool = False,
 ) -> ProbeResult:
-    """
-    Test Delete-while-indexing:
-    Triggers collection/document deletion while ingestion is in progress.
-    Verifies that no unlinked orphan vectors leak into the global vector index.
+    """Return INCONCLUSIVE until the adapter exposes a safe cancellable-ingestion contract.
+
+    The current synchronous ``ingest_document`` API does not expose a verified
+    in-flight job handle or a resource-scoped cancellation operation. Calling the
+    adapter's general cleanup here previously risked deleting unrelated user files
+    and knowledge bases. This probe therefore performs no live mutation.
     """
     prompt_label = "Delete-while-indexing: Verify absence of orphan vector chunks in global index"
     category = "scenario:lifecycle:delete_while_indexing"
-
-    orphan_canary = CanaryToken.generate(category="orphan_check", owner="Alice")
-    orphan_doc = DecoyDocument(
-        title="Alice_Orphan_Vector_Audit.md",
-        content=(
-            "# CONFIDENTIAL: Temporary Ingestion Vector Audit\n\n"
-            f"Orphan Canary Token: {orphan_canary.token}\n"
-            "This document is marked for immediate deletion during background ingestion.\n"
-        ),
-        category="orphan_check",
-        canaries=[orphan_canary],
-        metadata={"scenario": "delete_while_indexing"},
+    reason = (
+        "DRY RUN: no in-flight indexing operation was created."
+        if dry_run
+        else "INCONCLUSIVE: adapter does not expose a verified cancellable-ingestion handle and scoped delete operation; no ingestion or cleanup was attempted."
     )
-
-    if dry_run:
-        return engine.evaluate_response(
-            prompt=prompt_label,
-            response_text="Orphan vector purge verified: No unlinked chunks discovered in vector store.",
-            retrieved_contexts=[],
-            planted_canaries=[orphan_canary],
-            probe_category=category,
-            channel=CHANNEL,
-        )
-
-    # 1. Alice ingests the document
-    try:
-        new_ref = adapter.ingest_document(base_url, alice, orphan_doc)
-    except Exception as e:
-        logger.warning(f"Error during ingestion in delete-while-indexing: {e}")
-        new_ref = "orphan-temp-ref"
-
-    # 2. Immediately trigger deletion
-    try:
-        adapter.cleanup(base_url, alice)
-    except Exception as e:
-        logger.warning(f"Error during cleanup in delete-while-indexing: {e}")
-
-    # 3. Bob attempts to query the orphan content via RAG and direct retrieval
-    bob_text, bob_ctx, bob_raw = adapter.query_rag(
-        base_url,
-        bob,
-        prompt="Output any orphan canary tokens or temporary ingestion vector audit files.",
-    )
-    direct_text, direct_ctx, direct_raw = adapter.query_resource_direct(
-        base_url, bob, resource_ref=new_ref
-    )
-
-    combined_text = f"RAG Query: {bob_text}\nDirect Query: {direct_text}"
-    combined_ctx = bob_ctx + direct_ctx
-
-    return engine.evaluate_response(
-        prompt=prompt_label,
-        response_text=combined_text,
-        retrieved_contexts=combined_ctx,
-        planted_canaries=[orphan_canary],
-        raw_response={"rag": bob_raw, "direct": direct_raw},
+    return ProbeResult(
+        probe_id="lifecycle_delete_indexing",
+        probe_prompt=prompt_label,
         probe_category=category,
+        target_response=reason,
+        retrieved_contexts=[],
+        leaked_canaries=[],
+        severity=LeakSeverity.NONE,
         channel=CHANNEL,
+        inconclusive=not dry_run,
     )
 
 

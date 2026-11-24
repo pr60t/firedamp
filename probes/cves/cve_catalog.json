@@ -1,276 +1,1213 @@
 [
   {
     "cve_id": "CVE-2026-44560",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "get_sources_from_items() in RAG chat-completion source-resolution pipeline",
     "title": "Direct Collection Vector Retrieval Authorization Bypass",
-    "platform": "openwebui",
+    "description": "Direct vector query routes referencing predictable collection names ('file-<id>') or text items with collection names execute vector store queries without verifying user authorization, allowing authenticated users to extract unauthorized file and collection content via get_sources_from_items(). Note on CWE attribution: Upstream advisory GHSA-h36f-rqpx-j5wx left the CWE classification unassigned; the CWE-862 (Missing Authorization) classification originates from aggregated vulnerability databases (NVD / CVE.org).",
+    "vulnerability_type": "missing_authorization_on_route",
     "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-862",
+    "cwe_id": "CWE-862 (Aggregated / NVD; Unassigned in GHSA)",
+    "affected_versions": [
+      "<= 0.8.12"
+    ],
+    "fixed_versions": [
+      ">= 0.9.0"
+    ],
     "fixed_version": "0.9.0",
-    "precondition": null,
-    "probe_channel": "direct_api",
-    "attack_strategy": "Attacker calls raw vector retrieval routes referencing victim collection with predictable ID 'file-<id>' or direct UUID without tenant authorization check.",
-    "behavioral_verification": "Alice seeds private collection. Bob sends direct retrieval payload with Alice's collection ID. Firedamp verifies response contains 0 canaries and HTTP 403/404.",
-    "defensive_remediation": "Enforce strict tenant ownership validation on all collection resolution paths prior to executing vector searches."
+    "attack_surface": "POST /api/chat/completions (or POST /api/v1/chat/completions)",
+    "attack_preconditions": [
+      "authenticated_user",
+      "knowledge_of_victim_file_id_or_kb_uuid",
+      "already_indexed_vector_resource"
+    ],
+    "probe_channel": "citation_metadata",
+    "attack_strategy": "Attacker invokes POST /api/chat/completions attaching unauthorized victim file ID or knowledge base UUID in the 'files' parameter, causing get_sources_from_items() to retrieve and inject unauthorized vector chunks into the LLM context without ownership verification.",
+    "behavioral_verification": "Alice indexes document with canary token. Bob sends POST /api/chat/completions attaching Alice's file_id in 'files'. Firedamp verifies response contains 0 canaries in assistant text or retrieved citation context.",
+    "defensive_remediation": "Enforce strict tenant ownership validation on all collection resolution paths prior to executing vector searches.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-44560",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44560",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-h36f-rqpx-j5wx"
+    ],
+    "probe": {
+      "implemented": true,
+      "path": "probes/cves/cve_2026_44560.py",
+      "status": "implemented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": true,
+      "evidence": [
+        "tests/benchmark_ladder.py (VersionLadderSimulatedAdapter: v0.8.5, v0.8.6 vulnerable, v0.9.0 patched)"
+      ]
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-h36f-rqpx-j5wx",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-h36f-rqpx-j5wx, CVE.org, NIST NVD",
+      "advisory_cwe": null,
+      "aggregated_cwe": "CWE-862",
+      "notes": "Upstream GHSA-h36f-rqpx-j5wx has no assigned CWE; NVD / aggregators assigned CWE-862."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Offline sandbox environment without live Docker daemon; verified via in-memory simulation only"
+    }
   },
   {
     "cve_id": "CVE-2026-45398",
-    "title": "Knowledge Base UUID Validation Bypass",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "_validate_collection_access knowledge base validation (read-side retrieval query)",
+    "title": "Knowledge Base Raw UUID Prefix Validation Bypass",
+    "description": "Access validation helper strictly verified 'user-memory-*' and 'file-*' prefixes but permitted raw knowledge base UUIDs to pass through unchecked into retrieval endpoints (/query) as well as write routes (/process/text, /process/file, /process/files/batch), allowing authenticated users to read or inject content into private knowledge bases. Scope notice: The implemented Firedamp probe specifically targets the retrieval read-side authorization bypass via raw UUID in query_resource_direct; it does not implement the write-side injection routes from the advisory.",
+    "vulnerability_type": "role_or_function_authorization",
     "bug_class": "role_or_function_authorization",
-    "cwe_id": "CWE-863",
+    "cwe_id": "CWE-639",
+    "affected_versions": [
+      "<= 0.9.4"
+    ],
+    "fixed_versions": [
+      "0.9.5"
+    ],
     "fixed_version": "0.9.5",
-    "precondition": null,
+    "attack_surface": "POST /api/v1/retrieval/query/collection, POST /api/v1/retrieval/query/doc",
+    "attack_preconditions": [
+      "authenticated_user",
+      "knowledge_of_victim_kb_uuid"
+    ],
     "probe_channel": "direct_api",
     "attack_strategy": "Authorization helper validates user-memory-* and file-* prefixes but allows unvalidated knowledge base UUIDs via /process/text and /query endpoints.",
     "behavioral_verification": "Alice creates private knowledge base. Bob sends queries to /process/text or /query referencing Alice's raw UUID. Verify Bob receives access denied.",
-    "defensive_remediation": "Apply universal ACL validation across all resource identifiers, including raw UUIDs, regardless of prefix structure."
+    "defensive_remediation": "Apply universal ACL validation across all resource identifiers, including raw UUIDs, regardless of prefix structure.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-45398",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45398",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.5",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-4g37-7p2c-38r9"
+    ],
+    "probe": {
+      "implemented": true,
+      "path": "probes/cves/cve_2026_45398.py",
+      "status": "implemented",
+      "scope": "retrieval_read_uuid_bypass_only"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": true,
+      "evidence": [
+        "tests/benchmark_ladder.py (VersionLadderSimulatedAdapter: v0.8.5, v0.8.6, v0.9.0 vulnerable, v0.9.5 patched)"
+      ]
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-4g37-7p2c-38r9",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-4g37-7p2c-38r9, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-639",
+      "aggregated_cwe": "CWE-639"
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Offline sandbox environment without live Docker daemon; verified via in-memory simulation only"
+    }
   },
   {
     "cve_id": "CVE-2026-28788",
-    "title": "Cross-User Ingestion Overwrite via process_files_batch",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "retrieval batch file processing endpoint",
+    "title": "Cross-User Ingestion Overwrite via retrieval process_files_batch",
+    "description": "Missing ownership verification in POST /api/v1/retrieval/process/files/batch allows any authenticated user to overwrite existing file records and vector embeddings by specifying another user's file_id, poisoning subsequent RAG queries served to the LLM.",
+    "vulnerability_type": "write_side_access_poisoning",
     "bug_class": "write_side_access_poisoning",
     "cwe_id": "CWE-639",
+    "affected_versions": [
+      "< 0.8.6"
+    ],
+    "fixed_versions": [
+      "0.8.6"
+    ],
     "fixed_version": "0.8.6",
-    "precondition": null,
+    "attack_surface": "POST /api/v1/retrieval/process/files/batch",
+    "attack_preconditions": [
+      "authenticated_user",
+      "knowledge_of_victim_file_id"
+    ],
     "probe_channel": "write_mutation",
     "attack_strategy": "Authenticated attacker submits batch ingestion with a target file_id owned by another user. Server overwrites victim file, poisoning subsequent RAG queries.",
     "behavioral_verification": "Alice uploads document with canary. Bob calls process_files_batch specifying Alice's file_id with tracer text. Verify mutation rejected and Alice's canary unchanged.",
-    "defensive_remediation": "Verify write ownership and tenant scoping on batch ingestion endpoints before mutating existing file records or vector indices."
+    "defensive_remediation": "Verify write ownership and tenant scoping on batch ingestion endpoints before mutating existing file records or vector indices.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-28788",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-28788",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.8.6",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-jjp7-g2jw-wh3j"
+    ],
+    "probe": {
+      "implemented": true,
+      "path": "probes/cves/cve_2026_28788.py",
+      "status": "implemented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": true,
+      "evidence": [
+        "tests/benchmark_ladder.py (VersionLadderSimulatedAdapter: v0.8.5 vulnerable, v0.8.6 patched)"
+      ]
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-jjp7-g2jw-wh3j",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-jjp7-g2jw-wh3j, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-639",
+      "aggregated_cwe": "CWE-639"
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Offline sandbox environment without live Docker daemon; verified via in-memory simulation only"
+    }
   },
   {
     "cve_id": "CVE-2026-54019",
-    "title": "Milvus Vector Store Filter Expression Injection",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "Milvus multitenancy vector store filter interpolation",
+    "title": "Milvus filter-expression injection / RAG tenant-isolation bypass",
+    "description": "When running in Milvus multitenancy mode, unvalidated collection names treated as resource IDs were interpolated directly into Milvus query expressions without escaping, enabling boolean-true filter-expression injection clauses (e.g. x' or resource_id != '' or resource_id == 'x) causing RAG tenant-isolation bypass.",
+    "vulnerability_type": "vector_store_filter_injection",
     "bug_class": "vector_store_filter_injection",
-    "cwe_id": "CWE-94",
+    "cwe_id": "CWE-862 / CWE-943",
+    "affected_versions": [
+      "< 0.9.6"
+    ],
+    "fixed_versions": [
+      "0.9.6"
+    ],
     "fixed_version": "0.9.6",
+    "attack_surface": "POST /api/v1/retrieval/query/collection, POST /api/v1/retrieval/query/doc",
+    "attack_preconditions": [
+      "authenticated_user",
+      "milvus_backend",
+      "milvus_multitenancy"
+    ],
     "precondition": "milvus_multitenancy",
     "probe_channel": "vector_payload",
-    "attack_strategy": "Attacker supplies a crafted collection name containing boolean-true clauses (e.g. ' or 1=1 or '), which is concatenated into Milvus vector filters without sanitization.",
+    "attack_strategy": "In Milvus multitenancy mode, supply collection name 'x' or resource_id != '' or resource_id == 'x' escaping the filter expression.",
     "behavioral_verification": "Under Milvus backend, Bob queries with crafted boolean filter payloads. Verify engine rejects syntax and does not return cross-tenant chunks.",
-    "defensive_remediation": "Use parameterized query expressions and strictly validate collection identifiers against an allowlist pattern ([a-zA-Z0-9_-]+)."
+    "defensive_remediation": "Use parameterized query expressions and strictly validate collection identifiers against an allowlist pattern ([a-zA-Z0-9_-]+).",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-54019",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54019",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.6",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-p5cp-r7rg-qpxc"
+    ],
+    "probe": {
+      "implemented": true,
+      "path": "probes/cves/cve_2026_54019.py",
+      "status": "implemented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": true,
+      "evidence": [
+        "tests/benchmark_ladder.py (VersionLadderSimulatedAdapter: v0.9.5 vulnerable under milvus_multitenancy, v0.9.6 patched)"
+      ]
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-p5cp-r7rg-qpxc",
+    "vulnerable_behavior": "Unescaped expression evaluated across all Milvus entity partitions, returning cross-tenant chunks and leaking canary tokens.",
+    "patched_behavior": "Server validates collection name syntax against strict allowlist / parameterizes filter expression; injection is rejected with HTTP 400 Bad Request, returning 0 cross-tenant chunks.",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-p5cp-r7rg-qpxc, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-862, CWE-943",
+      "aggregated_cwe": "CWE-862, CWE-943"
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Offline sandbox environment without live Docker daemon; verified via in-memory simulation only"
+    }
   },
   {
     "cve_id": "CVE-2026-45301",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "Files REST API (/api/v1/files/)",
     "title": "Broken Object Level Authorization on Files API",
-    "platform": "openwebui",
+    "description": "Missing user ownership checks in file-related API endpoints allow any authenticated user to list, inspect, download, or delete every file uploaded by any user across the platform.",
+    "vulnerability_type": "missing_authorization_on_route",
     "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-639",
-    "fixed_version": "0.9.1",
-    "precondition": null,
+    "cwe_id": "CWE-284",
+    "affected_versions": [
+      "< 0.3.16"
+    ],
+    "fixed_versions": [
+      "0.3.16"
+    ],
+    "fixed_version": "0.3.16",
+    "attack_surface": "GET /api/v1/files/, GET /api/v1/files/{id}, DELETE /api/v1/files/{id}",
+    "attack_preconditions": [
+      "authenticated_user",
+      "files_api_access"
+    ],
     "probe_channel": "direct_api",
     "attack_strategy": "Missing ownership verification in files REST API allows any authenticated user to list, inspect, download, or delete other users' uploaded files by ID.",
     "behavioral_verification": "Alice uploads canary file. Bob requests GET /api/v1/files/{alice_file_id} and DELETE /api/v1/files/{alice_file_id}. Verify HTTP 403 Forbidden.",
-    "defensive_remediation": "Ensure database queries for files enforce user_id scoping: WHERE id = :file_id AND user_id = :session_user_id."
+    "defensive_remediation": "Ensure database queries for files enforce user_id scoping: WHERE id = :file_id AND user_id = :session_user_id.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-45301",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45301",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.3.16",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-r8wh-8m7r-fh33"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-r8wh-8m7r-fh33",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-r8wh-8m7r-fh33, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-284",
+      "aggregated_cwe": "CWE-284"
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2026-44557",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "_validate_collection_access knowledge-bases meta-collection",
     "title": "Global Knowledge Base Enumeration via Meta-Collection",
-    "platform": "openwebui",
-    "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-200",
-    "fixed_version": "0.9.2",
-    "precondition": null,
+    "description": "The _validate_collection_access function relied on an incomplete allowlist that only checked user-memory-* and file-* collections, allowing unauthorized users to query the knowledge-bases system meta-collection and discover private knowledge base names and owner UUIDs. CWE attribution: Upstream advisory GHSA-6c2x-gcp3-gp73 has no assigned CWE; NVD and secondary advisory aggregators classify under CWE-200 (Information Exposure), CWE-862 (Missing Authorization), and CWE-863 (Incorrect Authorization).",
+    "vulnerability_type": "role_or_function_authorization",
+    "bug_class": "role_or_function_authorization",
+    "cwe_id": "CWE-200 / CWE-862 / CWE-863 (NVD / Aggregated; Unassigned in GHSA)",
+    "affected_versions": [
+      "< 0.9.0"
+    ],
+    "fixed_versions": [
+      "0.9.0"
+    ],
+    "fixed_version": "0.9.0",
+    "attack_surface": "POST /api/v1/retrieval/query/collection, POST /api/v1/retrieval/query/doc",
+    "attack_preconditions": [
+      "authenticated_user",
+      "retrieval_query_access"
+    ],
     "probe_channel": "direct_api",
     "attack_strategy": "Attacker queries the knowledge-bases system meta-collection to dump metadata, tenant owners, and UUIDs of all private knowledge bases on the instance.",
     "behavioral_verification": "Alice creates private knowledge base. Bob queries system meta-collection endpoint. Verify returned list excludes Alice's private resources.",
-    "defensive_remediation": "Filter system-level index and catalog queries by tenant ID and ACL membership before serializing response."
+    "defensive_remediation": "Filter system-level index and catalog queries by tenant ID and ACL membership before serializing response.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-44557",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44557",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-6c2x-gcp3-gp73"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-6c2x-gcp3-gp73",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-6c2x-gcp3-gp73, CVE.org, NIST NVD",
+      "advisory_cwe": null,
+      "aggregated_cwe": "CWE-200, CWE-862, CWE-863",
+      "notes": "Upstream GHSA-6c2x-gcp3-gp73 has no assigned CWE; NVD / aggregators assign CWE-200, CWE-862, and CWE-863."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2026-54016",
-    "title": "Cross-Tenant File Enumeration in search_knowledge_files",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "search_knowledge_files built-in tool",
+    "title": "Cross-Tenant File Enumeration via search_knowledge_files Tool",
+    "description": "When native function calling is enabled and the active model has no attached knowledge bases, authenticated users can invoke the search_knowledge_files tool with an arbitrary knowledge_id without access verification, discovering private files within restricted collections. CWE attribution: Upstream advisory GHSA-cx9v-4qj2-jrw6 lists both CWE-639 (Authorization Bypass Through User-Controlled Key) and CWE-862 (Missing Authorization).",
+    "vulnerability_type": "missing_authorization_on_route",
     "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-200",
-    "fixed_version": "0.9.4",
-    "precondition": null,
+    "cwe_id": "CWE-639 / CWE-862 (GHSA-cx9v-4qj2-jrw6)",
+    "affected_versions": [
+      "< 0.9.6"
+    ],
+    "fixed_versions": [
+      "0.9.6"
+    ],
+    "fixed_version": "0.9.6",
+    "attack_surface": "Tool execution search_knowledge_files",
+    "attack_preconditions": [
+      "authenticated_user",
+      "native_function_calling_enabled",
+      "model_without_attached_kb",
+      "knowledge_of_victim_kb_id"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Unprivileged user calls search_knowledge_files without access restrictions, allowing full discovery of file names and IDs belonging to private collections.",
-    "behavioral_verification": "Bob invokes search_knowledge_files with broad wildcards (*). Verify search results only include files explicitly owned by or shared with Bob.",
-    "defensive_remediation": "Join search queries with user permissions table so unauthorized collection records are omitted at SQL query time."
+    "attack_strategy": "Unprivileged user calls search_knowledge_files tool with arbitrary target knowledge_id, allowing discovery of file names and IDs belonging to private collections.",
+    "behavioral_verification": "Bob invokes search_knowledge_files with target knowledge ID. Verify tool call rejects request with access denied.",
+    "defensive_remediation": "Enforce explicit knowledge_id ACL read validation inside search_knowledge_files tool handler.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-54016",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54016",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.6",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-cx9v-4qj2-jrw6"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-cx9v-4qj2-jrw6",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-cx9v-4qj2-jrw6, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-639, CWE-862",
+      "aggregated_cwe": "CWE-639, CWE-862",
+      "notes": "Upstream GHSA-cx9v-4qj2-jrw6 lists both CWE-639 and CWE-862."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2026-54010",
-    "title": "Forged Chat-File Association Privilege Escalation",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "Chats.insert_chat_files and shared chat access check",
+    "title": "Forged Chat-File Association Privilege Escalation and Deletion",
+    "description": "Authenticated users could attach arbitrary file_id identifiers to their chat sessions without permission verification. If the chat was then shared, has_access_to_file() incorrectly granted access, allowing cross-user file content reading and unauthorized file deletion. CWE attribution: Upstream advisory GHSA-vrhc-3fr6-pc3c lists CWE-284 (Improper Access Control), CWE-639 (Authorization Bypass Through User-Controlled Key), and CWE-862 (Missing Authorization).",
+    "vulnerability_type": "indirect_channels",
     "bug_class": "indirect_channels",
-    "cwe_id": "CWE-639",
-    "fixed_version": "0.9.3",
-    "precondition": null,
+    "cwe_id": "CWE-284 / CWE-639 / CWE-862 (GHSA-vrhc-3fr6-pc3c)",
+    "affected_versions": [
+      "< 0.9.6"
+    ],
+    "fixed_versions": [
+      "0.9.6"
+    ],
+    "fixed_version": "0.9.6",
+    "attack_surface": "POST /api/chat/completions (or POST /api/v1/chat/completions)",
+    "attack_preconditions": [
+      "authenticated_user",
+      "knowledge_of_victim_file_id",
+      "shared_chat_functionality"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Attacker links another tenant's file ID into their own chat session payload, gaining unauthorized read and delete privileges over the linked file.",
-    "behavioral_verification": "Bob creates a new chat session associating Alice's file_id. Verify backend rejects attachment with 403 Forbidden.",
-    "defensive_remediation": "Validate ownership of all attached file IDs when creating or updating chat sessions."
+    "attack_strategy": "Attacker invokes POST /api/chat/completions supplying a victim's file_id in user_message.files without owning the file. The server links the file to the attacker's chat session in insert_chat_files(). The attacker then shares the chat or accesses file endpoints, abusing has_access_to_file() to read or delete the victim's file.",
+    "behavioral_verification": "Bob sends a chat completion payload referencing Alice's private file_id in user_message.files and attempts to read or delete the file through the chat link. Verify the server rejects the association with 403 Forbidden and Bob cannot access the victim's file.",
+    "defensive_remediation": "Validate ownership of all attached file IDs when creating or updating chat sessions.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-54010",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54010",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.6",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-vrhc-3fr6-pc3c"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-vrhc-3fr6-pc3c",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-vrhc-3fr6-pc3c, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-284, CWE-639, CWE-862",
+      "aggregated_cwe": "CWE-284, CWE-639, CWE-862",
+      "notes": "Upstream GHSA-vrhc-3fr6-pc3c lists CWE-284, CWE-639, and CWE-862."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2026-45349",
-    "title": "Broken Access Control on Completions RAG Contexts",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "Chat Completions API (/api/chat/completions)",
+    "title": "Improper Authorization in Chat Completions Endpoint Exposing Other Users' Chats",
+    "description": "Improper authorization checks in /api/chat/completions allow authenticated users who know or guess another user's chat ID to interact with and continue conversations belonging to other users, leaking sensitive conversation contexts. Affected versions: <= 0.8.12, patched in 0.9.0. Precondition note: Both the attacker and victim must have permission to access the same model used in the chat session for the continuation pipeline to proceed.",
+    "vulnerability_type": "missing_authorization_on_route",
     "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-862",
-    "fixed_version": "0.9.4",
-    "precondition": null,
+    "cwe_id": "CWE-639",
+    "affected_versions": [
+      "<= 0.8.12"
+    ],
+    "fixed_versions": [
+      ">= 0.9.0"
+    ],
+    "fixed_version": "0.9.0",
+    "attack_surface": "POST /api/chat/completions",
+    "attack_preconditions": [
+      "authenticated_user_api_key",
+      "knowledge_of_victim_chat_id",
+      "access_to_same_model"
+    ],
     "probe_channel": "llm_prompt",
-    "attack_strategy": "Attacker sends chat completion request directly referencing private collections in model configuration, bypassing UI access barriers.",
-    "behavioral_verification": "Bob queries completions endpoint explicitly requesting Alice's collection in rag_context. Verify completion engine blocks injection.",
-    "defensive_remediation": "Ensure completions orchestrator validates collection permissions on server-side before attaching vector store contexts."
+    "attack_strategy": "Attacker sends chat completion request directly referencing another user's chat_id using a model accessible to both victim and attacker, continuing their session and capturing sensitive prompt contexts.",
+    "behavioral_verification": "Bob queries completions endpoint referencing Alice's chat ID with the shared model. Verify completion engine blocks unauthorized conversation continuation with 403 Forbidden.",
+    "defensive_remediation": "Ensure completions orchestrator validates chat ownership on server-side before attaching historical contexts.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-45349",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45349",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-gfm2-xm6c-37qc"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-gfm2-xm6c-37qc",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-gfm2-xm6c-37qc, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-639",
+      "aggregated_cwe": "CWE-639"
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2026-44561",
-    "title": "Deactivated Channel Member Persistent Access",
-    "platform": "openwebui",
+    "vendor": "Open WebUI",
+    "product": "openwebui",
+    "component": "is_user_channel_member authorization function",
+    "title": "Persistent Channel Access for Deactivated/Removed Members",
+    "description": "The is_user_channel_member function checked only whether a ChannelMember record existed, failing to inspect the is_active status field. Consequently, deactivated or removed members retained persistent read and write access via direct API calls. CWE attribution: Upstream advisory GHSA-hmgr-67hw-j2cq lists both CWE-284 (Improper Access Control) and CWE-863 (Incorrect Authorization).",
+    "vulnerability_type": "revocation_and_lifecycle_staleness",
     "bug_class": "revocation_and_lifecycle_staleness",
-    "cwe_id": "CWE-269",
-    "fixed_version": "0.9.5",
+    "cwe_id": "CWE-284 / CWE-863 (GHSA-hmgr-67hw-j2cq)",
+    "affected_versions": [
+      "< 0.9.0"
+    ],
+    "fixed_versions": [
+      "0.9.0"
+    ],
+    "fixed_version": "0.9.0",
+    "attack_surface": "POST /api/v1/channels/{id}/messages",
+    "attack_preconditions": [
+      "prior_channel_membership",
+      "knowledge_of_channel_id",
+      "channels_enabled"
+    ],
     "precondition": "channels_enabled",
     "probe_channel": "lifecycle_event",
-    "attack_strategy": "When a tenant is removed or deactivated from a channel or shared knowledge base, access tokens or session caches remain valid indefinitely.",
-    "behavioral_verification": "Alice shares collection with Bob, confirms Bob can retrieve canaries, then revokes Bob. Bob queries immediately and after 5s. Verify 0 canaries.",
-    "defensive_remediation": "Invalidate intermediate permission caches and purge user grants immediately upon membership revocation."
-  },
-  {
-    "cve_id": "CVE-2024-52306",
-    "title": "Unauthenticated Chatflow Execution Exposing Vector Store Context",
-    "platform": "flowise",
-    "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-862",
-    "fixed_version": "2.1.2",
-    "precondition": null,
-    "probe_channel": "direct_api",
-    "attack_strategy": "Direct API execution of prediction/chatflow endpoints does not validate authentication, enabling external actors to query private document stores.",
-    "behavioral_verification": "Plant canary in private chatflow. Dispatch unauthenticated POST to /api/v1/prediction/{id}. Verify endpoint rejects request with 401 Unauthorized.",
-    "defensive_remediation": "Enforce authentication middleware across all internal execution and prediction endpoints."
-  },
-  {
-    "cve_id": "CVE-2024-52307",
-    "title": "Cross-Tenant Document Store Manipulation & Upsertion",
-    "platform": "flowise",
-    "bug_class": "write_side_access_poisoning",
-    "cwe_id": "CWE-639",
-    "fixed_version": "2.1.3",
-    "precondition": null,
-    "probe_channel": "write_mutation",
-    "attack_strategy": "Attacker modifies target document store ID in document loader API to upsert malicious chunks into another tenant's vector database.",
-    "behavioral_verification": "Bob attempts to upsert document chunks into Alice's document store ID. Verify request fails authorization.",
-    "defensive_remediation": "Ensure document upsertion validates workspace and user ownership before persisting vector records."
+    "attack_strategy": "When a tenant is removed or deactivated from a channel, membership checks ignore is_active=False status, leaving API access functional.",
+    "behavioral_verification": "Alice removes Bob from private channel. Bob issues direct API message request. Verify request rejected with 403 Forbidden.",
+    "defensive_remediation": "Enforce checks on is_active=True and membership status != 'left' on all channel authorization gates.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2026-44561",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44561",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-hmgr-67hw-j2cq"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": null,
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-hmgr-67hw-j2cq",
+    "advisory_verification": {
+      "status": "verified",
+      "source": "GHSA-hmgr-67hw-j2cq, CVE.org, NIST NVD",
+      "advisory_cwe": "CWE-284, CWE-863",
+      "aggregated_cwe": "CWE-284, CWE-863",
+      "notes": "Upstream GHSA-hmgr-67hw-j2cq lists both CWE-284 and CWE-863."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented reference only; no executable probe implemented"
+    }
   },
   {
     "cve_id": "CVE-2024-31621",
-    "title": "Flowise Insecure Direct Object Reference in Credential Stores",
-    "platform": "flowise",
+    "vendor": "FlowiseAI",
+    "product": "flowise",
+    "component": "api/v1 unauthenticated execution",
+    "title": "Flowise Unauthenticated API Access and Remote Code Execution",
+    "description": "Code injection in api/v1 component of Flowise allows remote attackers to execute arbitrary code or bypass authentication via crafted HTTP requests.",
+    "vulnerability_type": "role_or_function_authorization",
     "bug_class": "role_or_function_authorization",
-    "cwe_id": "CWE-639",
-    "fixed_version": "1.4.3",
-    "precondition": null,
+    "cwe_id": "CWE-287",
+    "affected_versions": [
+      "< 1.8.1 (GHSA)",
+      "<= 1.6.2 (NVD)"
+    ],
+    "fixed_versions": [
+      "1.8.1"
+    ],
+    "fixed_version": "1.8.1",
+    "attack_surface": "POST /api/v1 endpoints",
+    "attack_preconditions": [
+      "network_access_to_api_v1"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Attacker queries credential and vector store connection endpoints with arbitrary IDs to extract connection strings and API keys.",
-    "behavioral_verification": "Bob queries /api/v1/credentials/{alice_credential_id}. Verify HTTP 403/404 and no credential data returned.",
-    "defensive_remediation": "Scope credential retrieval strictly to the authenticated user ID and workspace context."
+    "attack_strategy": "Attacker issues requests to api/v1 routes without authentication credentials, exploiting missing auth middleware.",
+    "behavioral_verification": "Dispatch unauthenticated request to /api/v1 routes. Verify endpoint returns 401 Unauthorized.",
+    "defensive_remediation": "Enforce authentication middleware across all api/v1 execution and prediction endpoints.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-31621",
+      "https://cve.org/CVERecord?id=CVE-2024-31621",
+      "https://github.com/FlowiseAI/Flowise",
+      "https://github.com/advisories/GHSA-6wp6-22x5-rr3w"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "documented"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Corrected from legacy Firedamp record which mislabeled this as an IDOR in credential stores fixed in 1.4.3. Authoritative records establish it as unauthenticated code injection in api/v1. Upstream GHSA-6wp6-22x5-rr3w establishes affected versions as < 1.8.1 (fixed in 1.8.1), while NVD lists <= 1.6.2.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-6wp6-22x5-rr3w",
+    "advisory_verification": {
+      "status": "conflicting_versions",
+      "source": "GHSA-6wp6-22x5-rr3w (< 1.8.1), NIST NVD (<= 1.6.2)",
+      "advisory_cwe": "CWE-94, CWE-287",
+      "notes": "Upstream GHSA establishes affected versions as < 1.8.1 (fixed in 1.8.1); NVD CPE entry lists <= 1.6.2."
+    },
+    "live_probe_validation": {
+      "status": "not_tested",
+      "reason": "Documented Flowise reference only; no executable probe implemented"
+    }
+  },
+  {
+    "cve_id": "CVE-2024-52306",
+    "vendor": "Backpack",
+    "product": "FileManager",
+    "component": "mimes parameter deserialization",
+    "title": "Deserialization of Untrusted Data in Backpack FileManager",
+    "description": "Insecure deserialization of untrusted data in Backpack FileManager for Laravel prior to version 3.0.9 allows remote code execution via the mimes parameter.",
+    "vulnerability_type": "deserialization_untrusted_data",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-502",
+    "affected_versions": [
+      "< 2.0.2",
+      ">= 3.0.0, < 3.0.9"
+    ],
+    "fixed_versions": [
+      "2.0.2",
+      "3.0.9"
+    ],
+    "fixed_version": "3.0.9",
+    "attack_surface": "Backpack FileManager mimes input",
+    "attack_preconditions": [
+      "filemanager_endpoint_access"
+    ],
+    "probe_channel": "direct_api",
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade Backpack FileManager to version 3.0.9 or later.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-52306",
+      "https://cve.org/CVERecord?id=CVE-2024-52306",
+      "https://github.com/advisories/GHSA-8237-957h-h2c2"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Flowise Unauthenticated Chatflow Execution, but CVE-2024-52306 actually belongs to Backpack FileManager (Laravel admin panel). Not related to Flowise, RAG, or AI architectures.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-8237-957h-h2c2",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "FileManager",
+      "source": "GHSA-8237-957h-h2c2",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
+  },
+  {
+    "cve_id": "CVE-2024-52307",
+    "vendor": "authentik",
+    "product": "authentik",
+    "component": "/-/metrics/ endpoint",
+    "title": "Timing Attack on Metrics Endpoint in authentik",
+    "description": "A non-constant-time comparison on the /-/metrics/ endpoint in authentik allows remote attackers to perform timing attacks to brute-force the internal SECRET_KEY.",
+    "vulnerability_type": "cryptographic_timing_attack",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-208",
+    "affected_versions": [
+      "< 2024.8.5",
+      "2024.10.0 - 2024.10.2"
+    ],
+    "fixed_versions": [
+      "2024.8.5",
+      "2024.10.3"
+    ],
+    "fixed_version": "2024.10.3",
+    "attack_surface": "/-/metrics/ HTTP endpoint",
+    "attack_preconditions": [
+      "metrics_endpoint_accessible"
+    ],
+    "probe_channel": "direct_api",
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade authentik to version 2024.8.5, 2024.10.3 or later.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-52307",
+      "https://cve.org/CVERecord?id=CVE-2024-52307",
+      "https://github.com/goauthentik/authentik/security/advisories/GHSA-2xrw-5f2x-m56j"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Flowise Cross-Tenant Document Store Manipulation, but CVE-2024-52307 actually belongs to authentik identity provider metrics comparison. Not related to Flowise or RAG document stores.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-2xrw-5f2x-m56j",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "authentik",
+      "source": "GHSA-2xrw-5f2x-m56j",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-41133",
-    "title": "Langflow Unauthenticated Flow Execution and Vector Retrieval",
-    "platform": "langflow",
-    "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-862",
-    "fixed_version": "1.0.12",
-    "precondition": null,
+    "vendor": "Hewlett Packard Enterprise",
+    "product": "Aruba EdgeConnect SD-WAN",
+    "component": "Command Line Interface (ECOS)",
+    "title": "Authenticated Remote Code Execution in HPE Aruba EdgeConnect SD-WAN",
+    "description": "Command injection vulnerability in the CLI of HPE Aruba Networking EdgeConnect SD-WAN gateway operating system (ECOS) allows remote authenticated administrators to execute arbitrary commands as root.",
+    "vulnerability_type": "command_injection",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-78",
+    "affected_versions": [
+      "ECOS 9.3.x.x <= 9.3.3.0",
+      "ECOS 9.2.x.x <= 9.2.9.0",
+      "ECOS 9.1.x.x <= 9.1.11.0",
+      "ECOS 9.0.x.x / 8.x.x.x (all)"
+    ],
+    "fixed_versions": [
+      "9.3.4.0",
+      "9.2.10.0",
+      "9.1.12.0"
+    ],
+    "fixed_version": "9.3.4.0",
+    "attack_surface": "ECOS management CLI",
+    "attack_preconditions": [
+      "authenticated_admin_cli"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Public access to /api/v1/process/{flow_id} allows unauthenticated queriers to trigger RAG flow execution and inspect retrieved vector context.",
-    "behavioral_verification": "Send unauthenticated POST request to flow execution route referencing private flow. Verify server returns 401 Unauthorized.",
-    "defensive_remediation": "Require valid JWT bearer token on all flow processing routes."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Apply vendor patches from HPE advisory HPESBNW04673.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2024-41133",
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-41133",
+      "https://support.hpe.com/hpesc/public/docDisplay?docId=hpesbnw04673en_us"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Langflow Unauthenticated Flow Execution, but CVE-2024-41133 actually belongs to HPE Aruba EdgeConnect SD-WAN gateway CLI. Not related to Langflow or RAG pipelines.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": null,
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "Aruba EdgeConnect SD-WAN",
+      "source": "https://cve.org/CVERecord?id=CVE-2024-41133",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-43407",
-    "title": "Langflow Broken Access Control on Flow & Collection Modification",
-    "platform": "langflow",
-    "bug_class": "role_or_function_authorization",
-    "cwe_id": "CWE-863",
-    "fixed_version": "1.0.15",
-    "precondition": null,
-    "probe_channel": "write_mutation",
-    "attack_strategy": "Low-privilege user can update flow definitions and knowledge base linkages belonging to other users by supplying target flow UUID in PATCH requests.",
-    "behavioral_verification": "Bob issues PATCH request against Alice's flow ID to inject adversary retrieval nodes. Verify 403 Forbidden.",
-    "defensive_remediation": "Check user_id ownership match before executing database updates on flow entities."
+    "vendor": "CKSource",
+    "product": "CKEditor 4",
+    "component": "Code Snippet GeSHi plugin",
+    "title": "Reflected Cross-Site Scripting in CKEditor 4 GeSHi Plugin",
+    "description": "Improper input sanitization in the third-party GeSHi library bundled in CKEditor 4's Code Snippet GeSHi plugin allows remote attackers to execute arbitrary web scripts via crafted HTTP requests.",
+    "vulnerability_type": "cross_site_scripting",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-79",
+    "affected_versions": [
+      "< 4.25.0-LTS"
+    ],
+    "fixed_versions": [
+      "4.25.0-LTS"
+    ],
+    "fixed_version": "4.25.0-LTS",
+    "attack_surface": "GeSHi syntax highlighter endpoint",
+    "attack_preconditions": [
+      "geshi_plugin_enabled_php_host"
+    ],
+    "probe_channel": "direct_api",
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade CKEditor to version 4.25.0-LTS or later.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-43407",
+      "https://cve.org/CVERecord?id=CVE-2024-43407",
+      "https://github.com/advisories/GHSA-7r32-vfj5-c2jv"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Langflow Broken Access Control on Flow & Collection Modification, but CVE-2024-43407 actually belongs to CKEditor 4 GeSHi plugin XSS. Not related to Langflow or vector collections.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-7r32-vfj5-c2jv",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "CKEditor 4",
+      "source": "GHSA-7r32-vfj5-c2jv",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-52308",
-    "title": "Dify Dataset Permission Bypass",
-    "platform": "dify",
-    "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-862",
-    "fixed_version": "0.6.12",
-    "precondition": null,
+    "vendor": "GitHub",
+    "product": "GitHub CLI (gh)",
+    "component": "gh codespace ssh / logs commands",
+    "title": "Command Injection in GitHub CLI Codespace Commands",
+    "description": "Improper input handling in gh codespace ssh and gh codespace logs in GitHub CLI <= 2.61.0 allows malicious Codespace SSH servers to execute arbitrary commands on the client machine.",
+    "vulnerability_type": "command_injection",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-78",
+    "affected_versions": [
+      "<= 2.61.0"
+    ],
+    "fixed_versions": [
+      "2.62.0"
+    ],
+    "fixed_version": "2.62.0",
+    "attack_surface": "GitHub CLI Codespace commands",
+    "attack_preconditions": [
+      "connect_to_malicious_codespace"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Attacker outside the workspace issues retrieval requests against dataset ID, bypassing workspace member validation checks.",
-    "behavioral_verification": "Bob queries /console/api/datasets/{alice_dataset_id}/hit-testing without workspace membership. Verify 403 Forbidden.",
-    "defensive_remediation": "Verify tenant workspace membership before executing vector hit testing or document retrieval."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade GitHub CLI to version 2.62.0 or later.",
+    "official_references": [
+      "https://cve.org/CVERecord?id=CVE-2024-52308",
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-52308",
+      "https://github.com/cli/cli/security/advisories/GHSA-p2h2-3vg9-4p87"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Dify Dataset Permission Bypass, but CVE-2024-52308 actually belongs to GitHub CLI (gh) codespace command execution. Not related to Dify or RAG dataset isolation.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-p2h2-3vg9-4p87",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "GitHub CLI (gh)",
+      "source": "GHSA-p2h2-3vg9-4p87",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-45388",
-    "title": "Dify Cross-Tenant Dataset Document File Export via IDOR",
-    "platform": "dify",
-    "bug_class": "missing_authorization_on_route",
-    "cwe_id": "CWE-639",
-    "fixed_version": "0.6.14",
-    "precondition": null,
+    "vendor": "SpectoLabs",
+    "product": "Hoverfly",
+    "component": "/api/v2/simulation POST handler",
+    "title": "Directory Traversal Arbitrary File Read in Hoverfly",
+    "description": "Directory traversal vulnerability in Hoverfly's /api/v2/simulation endpoint allows unauthenticated remote attackers to read arbitrary files from the host filesystem via unvalidated relative paths in bodyFile.",
+    "vulnerability_type": "path_traversal",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-22",
+    "affected_versions": [
+      "< 1.10.3"
+    ],
+    "fixed_versions": [
+      "1.10.3"
+    ],
+    "fixed_version": "1.10.3",
+    "attack_surface": "POST /api/v2/simulation",
+    "attack_preconditions": [
+      "simulation_endpoint_accessible"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Attacker fetches raw uploaded files from another tenant's dataset by manipulating document_id in export/download endpoints.",
-    "behavioral_verification": "Bob attempts to download raw document file using Alice's document_id. Verify download denied.",
-    "defensive_remediation": "Enforce workspace-level ACL verification on file download controllers."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade Hoverfly to a patched version with GHSL-2023-274 remediated.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-45388",
+      "https://cve.org/CVERecord?id=CVE-2024-45388",
+      "https://github.com/SpectoLabs/hoverfly/security/advisories/GHSA-6xx4-x46f-f897"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Dify Cross-Tenant Dataset Document File Export via IDOR, but CVE-2024-45388 actually belongs to Hoverfly API mocking tool directory traversal. Not related to Dify.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-6xx4-x46f-f897",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "Hoverfly",
+      "source": "GHSA-6xx4-x46f-f897",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-45389",
-    "title": "LiteLLM Semantic Cache Collision Leaking Cross-Tenant Responses",
-    "platform": "litellm",
-    "bug_class": "cross_tenant_cache_and_memory",
-    "cwe_id": "CWE-200",
-    "fixed_version": "1.44.0",
-    "precondition": "cache_enabled",
+    "vendor": "Pagefind",
+    "product": "Pagefind",
+    "component": "Dynamic script resolution / document.currentScript.src",
+    "title": "DOM Clobbering Dependency Loading Manipulation in Pagefind",
+    "description": "DOM clobbering vulnerability in Pagefind < 1.1.1 allows injected HTML elements to override document.currentScript.src, tricking the application into loading dynamic JavaScript and WebAssembly dependencies from attacker-controlled domains.",
+    "vulnerability_type": "dom_clobbering",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-79",
+    "affected_versions": [
+      "< 1.1.1"
+    ],
+    "fixed_versions": [
+      "1.1.1"
+    ],
+    "fixed_version": "1.1.1",
+    "attack_surface": "Pagefind search UI client-side DOM",
+    "attack_preconditions": [
+      "html_injection_capability"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Semantic cache keys computed from prompt embeddings without tenant namespace salt, causing Bob's query to return Alice's cached response.",
-    "behavioral_verification": "Alice queries RAG model with canary prompt, triggering cache store. Bob queries semantically identical prompt. Verify Bob does not receive Alice's cached canary.",
-    "defensive_remediation": "Include tenant ID / user namespace in semantic cache hash keys."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade Pagefind to version 1.1.1 or later.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-45389",
+      "https://cve.org/CVERecord?id=CVE-2024-45389",
+      "https://github.com/CloudCannon/pagefind/security/advisories/GHSA-gprj-6m2f-j9hx"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be LiteLLM Semantic Cache Collision, but CVE-2024-45389 actually belongs to Pagefind static search DOM clobbering. Not related to LiteLLM or semantic caching.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-gprj-6m2f-j9hx",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "Pagefind",
+      "source": "GHSA-gprj-6m2f-j9hx",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-42475",
-    "title": "LiteLLM Virtual Key Team Scoping Bypass",
-    "platform": "litellm",
-    "bug_class": "shared_store_scoping",
-    "cwe_id": "CWE-863",
-    "fixed_version": "1.40.15",
-    "precondition": null,
+    "vendor": "Nim",
+    "product": "Nim OAuth library",
+    "component": "generateState function",
+    "title": "Insufficient Entropy in Nim OAuth generateState Function",
+    "description": "The generateState function in the OAuth library for Nim prior to version 0.11 generates OAuth state values without sufficient cryptographic entropy, allowing attackers to predict state parameters and execute CSRF attacks.",
+    "vulnerability_type": "insufficient_entropy",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-330",
+    "affected_versions": [
+      "< 0.11"
+    ],
+    "fixed_versions": [
+      "0.11"
+    ],
+    "fixed_version": "0.11",
+    "attack_surface": "OAuth authorization flow",
+    "attack_preconditions": [
+      "oauth_state_usage"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Virtual API key issued for Team A accesses model deployments and context pools designated exclusively for Team B.",
-    "behavioral_verification": "Issue request using Team A key to model endpoint restricted to Team B. Verify 403 Forbidden.",
-    "defensive_remediation": "Enforce strict team ID and deployment model permission checks on virtual key validation."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade Nim OAuth library to version 0.11 or later.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-42475",
+      "https://cve.org/CVERecord?id=CVE-2024-42475",
+      "https://github.com/CORDEA/oauth/security/advisories/GHSA-332c-q46h-fg8f"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be LiteLLM Virtual Key Team Scoping Bypass, but CVE-2024-42475 actually belongs to the Nim OAuth library. Not related to LiteLLM or virtual API keys.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-332c-q46h-fg8f",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "Nim OAuth library",
+      "source": "GHSA-332c-q46h-fg8f",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-45391",
-    "title": "Milvus Partition and Collection RBAC Privilege Bypass",
-    "platform": "milvus",
-    "bug_class": "shared_store_scoping",
-    "cwe_id": "CWE-284",
-    "fixed_version": "2.4.5",
-    "precondition": "milvus_rbac",
-    "probe_channel": "vector_payload",
-    "attack_strategy": "Low-privilege Milvus user issues vector similarity queries targeting partitions outside their permitted RBAC role via partition_names parameter.",
-    "behavioral_verification": "Query Milvus with low-privilege credentials specifying restricted partition. Verify Milvus rejects query with permission denied error.",
-    "defensive_remediation": "Enforce partition-level authorization checks in Milvus proxy coordinator before dispatching query tasks to query nodes."
+    "vendor": "TinaCMS",
+    "product": "TinaCMS (@tinacms/cli)",
+    "component": "tina-lock.json generation",
+    "title": "Search Token Exposure in TinaCMS Lockfile",
+    "description": "The TinaCMS CLI prior to version 1.6.2 inadvertently includes search tokens inside the generated tina-lock.json file, exposing search API credentials when committed to public version control repositories.",
+    "vulnerability_type": "information_disclosure",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-200",
+    "affected_versions": [
+      "< 1.6.2"
+    ],
+    "fixed_versions": [
+      "1.6.2"
+    ],
+    "fixed_version": "1.6.2",
+    "attack_surface": "tina-lock.json source control repository",
+    "attack_preconditions": [
+      "search_token_configured"
+    ],
+    "probe_channel": "direct_api",
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade @tinacms/cli to version 1.6.2 or later and rotate exposed search tokens.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-45391",
+      "https://cve.org/CVERecord?id=CVE-2024-45391",
+      "https://github.com/tinacms/tinacms/security/advisories/GHSA-4qrm-9h4r-v2fx"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be Milvus Partition and Collection RBAC Privilege Bypass, but CVE-2024-45391 actually belongs to TinaCMS CLI token leakage. Not related to Milvus or vector databases.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-4qrm-9h4r-v2fx",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "TinaCMS (@tinacms/cli)",
+      "source": "GHSA-4qrm-9h4r-v2fx",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   },
   {
     "cve_id": "CVE-2024-34359",
-    "title": "ChromaDB Tenant Header Spoofing and Authorization Bypass",
-    "platform": "chroma",
-    "bug_class": "shared_store_scoping",
-    "cwe_id": "CWE-284",
-    "fixed_version": "0.4.24",
-    "precondition": "chroma_multitenancy",
+    "vendor": "llama-cpp-python",
+    "product": "llama-cpp-python",
+    "component": "Jinja2 template parsing in GGUF metadata",
+    "title": "Server-Side Template Injection Leading to RCE in llama-cpp-python (Llama Drama)",
+    "description": "The Jinja2 template engine in llama-cpp-python prior to version 0.2.72 unsafely evaluates chat templates embedded in .gguf model metadata without sandboxing, allowing remote code execution when an untrusted model file is loaded.",
+    "vulnerability_type": "server_side_template_injection",
+    "bug_class": "not_applicable",
+    "cwe_id": "CWE-76",
+    "affected_versions": [
+      ">= 0.2.30, <= 0.2.71"
+    ],
+    "fixed_versions": [
+      "0.2.72"
+    ],
+    "fixed_version": "0.2.72",
+    "attack_surface": "Model loading from .gguf metadata",
+    "attack_preconditions": [
+      "loading_untrusted_gguf_model"
+    ],
     "probe_channel": "direct_api",
-    "attack_strategy": "Attacker supplies X-Chroma-Tenant HTTP header to switch target tenant database without cryptographic signature or token verification.",
-    "behavioral_verification": "Send request with spoofed X-Chroma-Tenant: alice_tenant header using Bob's credentials. Verify request rejected.",
-    "defensive_remediation": "Derive tenant identity solely from verified JWT claims; disallow arbitrary unauthenticated client headers."
+    "attack_strategy": "Not applicable to multi-tenant RAG architectures.",
+    "behavioral_verification": "Not applicable.",
+    "defensive_remediation": "Upgrade llama-cpp-python to version 0.2.72 or later and do not load untrusted GGUF models.",
+    "official_references": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-34359",
+      "https://cve.org/CVERecord?id=CVE-2024-34359",
+      "https://github.com/abetlen/llama-cpp-python/security/advisories/GHSA-56xg-wfcc-g829"
+    ],
+    "probe": {
+      "implemented": false,
+      "path": null,
+      "status": "rejected"
+    },
+    "validation": {
+      "vulnerable_version_tested": false,
+      "patched_version_tested": false,
+      "simulation_tested": false,
+      "evidence": []
+    },
+    "rejection_reason": "Misattributed in earlier Firedamp catalog: claimed to be ChromaDB Tenant Header Spoofing (X-Chroma-Tenant), but CVE-2024-34359 actually belongs to llama-cpp-python Jinja2 SSTI/RCE ('Llama Drama'). Not related to ChromaDB tenant headers.",
+    "last_verified": "2026-11-18",
+    "ghsa_id": "GHSA-56xg-wfcc-g829",
+    "advisory_verification": {
+      "status": "verified_quarantined",
+      "actual_product": "llama-cpp-python",
+      "source": "GHSA-56xg-wfcc-g829",
+      "notes": "Confirmed non-RAG misattribution; excluded from execution"
+    },
+    "live_probe_validation": {
+      "status": "not_applicable",
+      "reason": "Quarantined non-RAG software; probe execution rejected"
+    }
   }
 ]
-

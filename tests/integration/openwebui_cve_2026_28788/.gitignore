@@ -1,0 +1,21 @@
+# Exclude local secrets, dynamic environments, and container databases
+.env
+*.log
+*.sqlite3
+*.db
+__pycache__/
+*.pyc
+
+# Keep evidence folder structure tracked, but exclude run-specific artifacts from git
+evidence/historical/*
+!evidence/historical/.gitkeep
+evidence/offline_simulation/*
+!evidence/offline_simulation/.gitkeep
+evidence/live/*
+!evidence/live/.gitkeep
+
+# Exclude temporary execution setup and raw report files
+setup-*.json
+firedamp-*.json
+reproduce-*.json
+*.raw.json
