@@ -10,7 +10,7 @@
   <a href="wiki/CVE-Regression-Engine.md">🛡️ CVE Engine</a> •
   <a href="wiki/Version-Ladder-Benchmark.md">📊 Version Ladder</a> •
   <a href="#quickstart">⚡ Quickstart</a> •
-  <a href="#live-cve-2026-28788-differential-validation">🔬 Live Validation</a> •
+  <a href="#live-validation">🔬 Live Validation</a> •
   <a href="tests/integration/openwebui_cve_2026_28788/README.md">🧪 Integration Lab</a> •
   <a href="CVE_AUDIT.md">📋 CVE Audit</a>
 </p>
@@ -59,6 +59,9 @@ Firedamp maintains an audited 21-vulnerability catalog. Catalog entries are clas
 3. **10 Quarantined Historical Misattributions**: Third-party packages erroneously linked to RAG products in public databases, forensically quarantined and documented in [`CVE_AUDIT.md`](CVE_AUDIT.md) (`CVE-2024-52306`, `CVE-2024-52307`, `CVE-2024-41133`, `CVE-2024-43407`, `CVE-2024-52308`, `CVE-2024-45388`, `CVE-2024-45389`, `CVE-2024-42475`, `CVE-2024-45391`, `CVE-2024-34359`).
 
 ---
+
+<a id="live-validation"></a>
+<a id="live-cve-2026-28788-differential-validation"></a>
 
 ## 🔬 Live CVE-2026-28788 Differential Validation
 
