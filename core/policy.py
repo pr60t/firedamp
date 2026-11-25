@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 try:
     import yaml
 except ImportError:
-    yaml = None  # Fallback handled in from_yaml
+    yaml = None
 
 from core.engine import LeakSeverity, ProbeResult
 from core.reporter import AuditSummary
@@ -66,20 +66,18 @@ class FiredampPolicy:
     @classmethod
     def from_yaml(cls, path_or_content: str) -> FiredampPolicy:
         """Loads and parses a policy from a YAML file or raw YAML string."""
+        if yaml is None:
+            raise ImportError(
+                "PyYAML is required for policy loading in FiredampPolicy.from_yaml(). "
+                "Please install it with: pip install 'PyYAML>=6.0'"
+            )
+
         content = path_or_content
         if os.path.isfile(path_or_content):
             with open(path_or_content, "r", encoding="utf-8") as f:
                 content = f.read()
 
-        if yaml is not None:
-            data = yaml.safe_load(content) or {}
-        else:
-            # Fallback primitive parser if pyyaml is missing
-            data = {}
-            for line in content.splitlines():
-                if ":" in line and not line.strip().startswith("#"):
-                    k, v = line.split(":", 1)
-                    data[k.strip()] = v.strip()
+        data = yaml.safe_load(content) or {}
 
         thresholds_data = data.get("thresholds", {})
         allowed_codes = thresholds_data.get("allowed_status_codes", [401, 403, 404])

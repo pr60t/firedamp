@@ -4,6 +4,9 @@ Unit and integration tests for Pillar 7: Policy-as-Code & CI/CD Enforcement.
 
 import os
 import unittest
+from unittest.mock import patch
+
+import core.policy as policy_module
 from core.engine import LeakSeverity, ProbeResult
 from core.policy import FiredampPolicy, PolicyThresholds
 from core.reporter import AuditSummary
@@ -169,6 +172,24 @@ thresholds:
         ]
         result = policy.evaluate(summary, probe_results)
         self.assertTrue(result.passed)
+
+    def test_from_yaml_requires_pyyaml(self):
+        """Verify missing PyYAML raises a clear ImportError instead of using a partial fallback."""
+        yaml_content = """
+name: test_missing_pyyaml
+thresholds:
+  fail_on_direct_leak: true
+  ignored_channels:
+    - "citation_metadata"
+"""
+        with patch.object(policy_module, "yaml", None):
+            with self.assertRaises(ImportError) as file_ctx:
+                FiredampPolicy.from_yaml(self.default_policy_path)
+            self.assertIn("PyYAML", str(file_ctx.exception))
+
+            with self.assertRaises(ImportError) as raw_ctx:
+                FiredampPolicy.from_yaml(yaml_content)
+            self.assertIn("PyYAML", str(raw_ctx.exception))
 
 
 if __name__ == "__main__":
