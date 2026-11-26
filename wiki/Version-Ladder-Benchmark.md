@@ -1,9 +1,11 @@
 # 📊 Open WebUI Version Ladder Benchmark (Simulation)
 
-The **Version Ladder Benchmark** evaluates Firedamp's behavioral accuracy, CVE detection rates, and zero-false-positive guarantees against historical release milestones of Open WebUI.
+The **Version Ladder Benchmark** evaluates Firedamp's behavioral accuracy and detection rates against historical release milestones of Open WebUI in a deterministic simulation environment.
 
 > [!NOTE]
-> **Execution Mode Notice:** The automated benchmark executed via `python3 tests/benchmark_ladder.py` runs against an in-memory behavioral simulation (`VersionLadderSimulatedAdapter`) to deterministically verify probe logic, preconditions, and exact canary token matching across versions without requiring external Docker daemons or network dependencies. Live container deployment tests against real Open WebUI container images require an external Docker daemon.
+> **Execution Mode Notice:** The automated benchmark executed via `python3 tests/benchmark_ladder.py` runs against an in-memory behavioral simulation (`VersionLadderSimulatedAdapter`) to deterministically verify probe logic, preconditions, and exact canary token matching across versions without requiring external Docker daemons or network dependencies.
+>
+> **Simulation Scope:** Zero false positives were observed in the modeled benchmark scenarios. This is an observation within the simulation and is not a universal detection or false-positive guarantee for live deployments or untested architectures. Live container deployment tests against real Open WebUI container images require an external Docker daemon.
 >
 > **Live Differential Validation Cross-Reference:** CVE-2026-28788 also has a separate live Docker differential validation (Open WebUI v0.8.5 `COMPROMISED` vs v0.8.6 `CLEAN`) documented in [CVE-Regression-Engine.md](CVE-Regression-Engine.md#live-differential-validation--open-webui-v085-vs-v086).
 
@@ -50,7 +52,7 @@ To validate that Firedamp's non-weaponized behavioral probes faithfully detect p
 | **Execution Mode** | **Simulated In-Memory** | N/A | Deterministic emulation (no live containers) |
 | **Total Release Milestones** | **5** | 5 | Complete ladder coverage |
 | **Simulated Scenario Pass Rate** | **100.0%** | $\ge 95\%$ | **Zero Misses:** Every active vulnerability flagged |
-| **False Positive Count** | **0** | 0 | **Zero False Alarms:** Patched versions return clean |
+| **False Positive Count** | **0** | 0 | Patched versions returned clean in simulated runs |
 | **Mean Execution Latency** | **< 0.001s** | $< 5.0\text{s}$ | Sub-millisecond deterministic evaluation |
 
 ---

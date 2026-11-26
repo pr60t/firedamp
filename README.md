@@ -7,12 +7,13 @@
 </p>
 
 <p align="center">
+  <a href="wiki/Home.md">📖 Wiki Home</a> •
+  <a href="wiki/Quickstart.md">⚡ Quickstart</a> •
+  <a href="wiki/CLI-Reference.md">💻 CLI Reference</a> •
   <a href="wiki/CVE-Regression-Engine.md">🛡️ CVE Engine</a> •
+  <a href="wiki/API-Authorization-Matrix.md">🧭 Auth Matrix</a> •
   <a href="wiki/Version-Ladder-Benchmark.md">📊 Version Ladder</a> •
-  <a href="#quickstart">⚡ Quickstart</a> •
-  <a href="#live-validation">🔬 Live Validation</a> •
-  <a href="tests/integration/openwebui_cve_2026_28788/README.md">🧪 Integration Lab</a> •
-  <a href="CVE_AUDIT.md">📋 CVE Audit</a>
+  <a href="tests/integration/openwebui_cve_2026_28788/README.md">🧪 Integration Lab</a>
 </p>
 
 ---
@@ -28,179 +29,22 @@
                     \_________/
 ```
 
-Named after **firedamp**—the combustible mine gas historically detected using caged canaries—**Firedamp** evaluates cross-tenant data isolation, authorization boundaries, and security regression resistance in Retrieval-Augmented Generation (RAG) platforms.
+Named after **firedamp**—the combustible gas historically detected using caged canaries in coal mines—**Firedamp** evaluates cross-tenant data isolation, authorization boundaries, and security regression resistance in Retrieval-Augmented Generation (RAG) platforms.
 
 ---
 
-## 🔬 Core Capabilities
+## 1. What Firedamp Does
 
-Firedamp executes automated, non-weaponized behavioral probes across the retrieval and ingestion lifecycle:
+In multi-tenant AI and RAG platforms (such as Open WebUI), documents and vector embeddings can cross tenant boundaries due to missing endpoint authorization, role or prefix validation flaws, or unescaped query filters.
 
-- **Cross-Tenant Authorization Testing**: Simulates authenticated data owners (**Alice**) and unprivileged foreign queriers (**Bob**) to detect unauthorized data access across tenant boundaries.
-- **Behavioral CVE Regression Probes**: Automates deterministic regression fixtures for known RAG and vector-retrieval vulnerabilities.
-- **Read-Side Retrieval & Write-Side Mutation Probing**: Tests read routes (direct vector retrieval, chat completions RAG) and write routes (cross-user batch file overwrites and collection injections).
-- **API Authorization Matrix (RAG Autorize)**: Replays owner requests across Intruder, Ex-Member, and Anonymous personas to evaluate status codes and structural response diffs (`--suite auth-matrix`).
-- **Exact Knowledge-Base Membership Resolution**: Authoritatively establishes file-to-KB relationships using server-side enumeration, complete pagination, and candidate validation before testing.
-- **Scan-Scoped Disposable Tracking & Safe Cleanup**: Tracks ephemeral scan artifacts via an in-memory trusted registry (`_TRUSTED_SCAN_REGISTRY`), rechecks authenticated server-side ownership before deletion, and never deletes pre-existing knowledge bases.
-- **Deterministic Verdict Classification**: Evaluates leak severity (`NONE`, `CONTEXT_LEAK`, `DIRECT_LEAK`, `CRITICAL`) using high-entropy canary tokens and classifies outcomes into unambiguous states: `CLEAN`, `COMPROMISED`, or fail-closed `INCONCLUSIVE`.
+Firedamp automates non-weaponized behavioral security testing across the retrieval and ingestion lifecycle:
+1. **Plants High-Entropy Canaries**: Seeds verifiable synthetic canary tokens (`CANARY-FRDP-...`) into a data owner's private scope (**Alice**).
+2. **Executes Adversarial Probes**: Fires unprivileged retrieval queries, direct API calls, and mutation requests as an unauthorized tenant (**Bob**).
+3. **Classifies Telemetry**: Detects token bleed in chat completions, citation metadata, or direct vector responses, producing a deterministic verdict (`CLEAN`, `COMPROMISED`, or fail-closed `INCONCLUSIVE`) and a composite **Firedamp Index** (0.0 to 100.0).
 
 ---
 
-## 🛡️ Curated CVE Coverage
-
-Firedamp maintains an audited 21-vulnerability catalog. Catalog entries are classified into three distinct categories to avoid conflating executable tests with historical references:
-
-1. **4 Implemented Executable Probes (Tier 1)**: Fully automated Python behavioral probes with test fixtures and simulation coverage targeting Open WebUI:
-   - **`CVE-2026-44560`** (*Open WebUI <= 0.8.12, fixed in 0.9.0*): Direct collection vector retrieval authorization bypass in RAG chat completions (`POST /api/chat/completions`) via predictable collection identifiers (`file-<id>`) in `get_sources_from_items()`. Application-layer authorization bypass; backend-agnostic (not an OpenSearch vulnerability).
-   - **`CVE-2026-45398`** (*Open WebUI <= 0.9.4, fixed in 0.9.5*): Knowledge base raw UUID prefix validation bypass in collection retrieval routes (`POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc`) via `_validate_collection_access()` (scoped to retrieval read-side access). Application-layer authorization bypass; backend-agnostic (not a Chroma vulnerability).
-   - **`CVE-2026-28788`** (*Open WebUI < 0.8.6, fixed in 0.8.6*): Cross-user batch file overwrite in ingestion (`POST /api/v1/retrieval/process/files/batch`) due to missing server-side file ownership checks. Application-layer write-mutation flaw.
-   - **`CVE-2026-54019`** (*Open WebUI < 0.9.6, fixed in 0.9.6*): Vector store query interpolation flaw when deployed with the Milvus multitenancy backend (`precondition: milvus_multitenancy`). Unescaped `resource_id` string concatenation in `POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc` allows boolean-true filter injection (`x' or resource_id != '' or resource_id == 'x`), causing cross-tenant retrieval. Flaw in Open WebUI's Milvus integration under multitenancy (not Qdrant, and not a standalone Milvus database flaw).
-2. **7 Documented Vulnerabilities**: Authoritatively verified RAG/AI vulnerabilities tracked for catalog completeness without executable probe implementations in this repository (`CVE-2026-45301`, `CVE-2026-44557`, `CVE-2026-54016`, `CVE-2026-54010`, `CVE-2026-45349`, `CVE-2026-44561`, `CVE-2024-31621`).
-3. **10 Quarantined Historical Misattributions**: Third-party packages erroneously linked to RAG products in public databases, forensically quarantined and documented in [`CVE_AUDIT.md`](CVE_AUDIT.md) (`CVE-2024-52306`, `CVE-2024-52307`, `CVE-2024-41133`, `CVE-2024-43407`, `CVE-2024-52308`, `CVE-2024-45388`, `CVE-2024-45389`, `CVE-2024-42475`, `CVE-2024-45391`, `CVE-2024-34359`).
-
----
-
-<a id="live-validation"></a>
-<a id="live-cve-2026-28788-differential-validation"></a>
-
-## 🔬 Live CVE-2026-28788 Differential Validation
-
-Firedamp was executed against pinned, live Docker containers of Open WebUI to empirically validate the fix for **CVE-2026-28788** (cross-user batch file overwrite):
-
-| Target Container | Pinned Upstream Image Reference | Actual Firedamp Result | Interpretation |
-| :--- | :--- | :---: | :--- |
-| **Open WebUI v0.8.5** | `ghcr.io/open-webui/open-webui:v0.8.5@sha256:6251d208...` | **COMPROMISED** | Unauthorized cross-user overwrite reproduced; Bob mutated Alice's file |
-| **Open WebUI v0.8.6** | `ghcr.io/open-webui/open-webui:v0.8.6@sha256:4938a90d...` | **CLEAN** | Ownership enforcement blocked overwrite; Alice's content remained intact |
-
-### Technical Details of the Experiment
-- **Vulnerable Route**: `POST /api/v1/retrieval/process/files/batch`.
-- **Attack Mechanism**: Bob (unprivileged authenticated tenant) submitted a modified `FileModel` referencing Alice's target `file_id` and collection name.
-- **v0.8.5 Outcome**: The batch endpoint accepted the payload without checking whether `file.user_id == user.id`. Firedamp independently read back Alice's file content (`GET /api/v1/files/{id}/content` as Alice) and detected Bob's tracer canary token (`direct_leak`, `is_vulnerable = true`).
-- **v0.8.6 Outcome**: The patched batch endpoint returned a per-file rejection: `Permission denied: not file owner`.
-- **HTTP Status Notice**: The patched upstream endpoint returned an overall HTTP 200 response with the rejection reported in the JSON `errors` list; it did **not** return an HTTP 403 status code.
-- **Data Integrity Verification**: Alice's original 302-byte document content and baseline SHA-256 digest (`b8fe905c936d2f95065012f079a6637825559561b03a52967cf7de42136bf2de`) remained unaltered on v0.8.6.
-- **Cleanup & Isolation Verification**: Post-probe restoration returned the victim file to its baseline, removed probe vectors, preserved 3 neighboring tenant files, and confirmed knowledge-base membership remained at 4 files.
-
-> [!NOTE]
-> **Evidence Provenance & Retention Architecture:**
-> - **Operator-Reported Live Results**: The differential validation results above reflect empirical container execution against pinned upstream Docker images (`ghcr.io/open-webui/open-webui:v0.8.5` and `v0.8.6`) conducted by authorized operators using loopback-isolated integration scripts (`reproduce_cve.py` and `run_firedamp_probe.py`).
-> - **External Raw Evidence Archive**: To keep the source repository lightweight and prevent large ephemeral runtime outputs from entering version control, raw execution reports (`firedamp-v085.json`, `firedamp-v086.json`, `reproduce-v085.json`, and `reproduce-v086.json`) are retained externally in sanitized evidence archives (`~/firedamp-evidence/cve-2026-28788/` on operator environments). Cryptographic SHA-256 snapshots of these inspected raw reports are permanently recorded for auditability in [`CVE_AUDIT.md`](CVE_AUDIT.md).
-> - **Repository-Relative Assets & Reproducibility**: The repository includes the complete Docker orchestration harness ([`tests/integration/openwebui_cve_2026_28788/compose.yaml`](tests/integration/openwebui_cve_2026_28788/compose.yaml)), preflight checks, lab setup scripts, and directory structures documented in [`tests/integration/openwebui_cve_2026_28788/README.md`](tests/integration/openwebui_cve_2026_28788/README.md).
-> - **Independently Reproduced Offline Simulations**: Developers and CI environments without a Docker daemon can independently reproduce and verify all verdict classification logic, pre-write safety gates, and response parser contracts using the hermetic offline simulation suite in [`tests/integration/openwebui_cve_2026_28788/simulations/`](tests/integration/openwebui_cve_2026_28788/simulations/) (`68 passed`).
->
-> Full forensic audit logs, timeline registries, and resolver architectures are documented in:
-> - [`wiki/CVE-Regression-Engine.md`](wiki/CVE-Regression-Engine.md)
-> - [`CVE_AUDIT.md`](CVE_AUDIT.md)
-> - [`FINAL_AUDIT.md`](FINAL_AUDIT.md)
-> - [`FINAL_AUDIT_REMEDIATION.md`](FINAL_AUDIT_REMEDIATION.md)
-
----
-
-## 🧪 Safe Integration Lab (CVE-2026-28788)
-
-The repository provides an isolated local test harness in [`tests/integration/openwebui_cve_2026_28788/`](tests/integration/openwebui_cve_2026_28788/):
-
-- **Pinned Versions**: Open WebUI `v0.8.5` (port 13085) and `v0.8.6` (port 13086).
-- **Loopback Enforcement**: Bound strictly to `127.0.0.1` by default via shared `lab_safety.py` guards; non-loopback endpoints require explicit flags.
-- **Target Verification**: Preflight checks verify target identity, version headers, and confirm that Alice and Bob do not share server user IDs or bearer tokens.
-- **Disposable Resource Scoping**: All mutations require unique disposable resource IDs registered in `_TRUSTED_SCAN_REGISTRY` before execution.
-- **Sanitized Evidence Collection**: Automated evidence collection scripts sanitize hostnames, tokens, and machine-specific file paths.
-- **Separation of Modes**: Deterministic offline simulations run without Docker; live lab execution requires explicit container orchestration.
-
-> [!CAUTION]
-> **Safety Warning:** Never execute write-poisoning or destructive probes against production deployments or shared multi-user environments. Use dedicated, disposable local instances. See [`tests/integration/openwebui_cve_2026_28788/README.md`](tests/integration/openwebui_cve_2026_28788/README.md) for lab usage instructions.
-
----
-
-## 📊 Testing & Evidence Classification
-
-To prevent misleading claims, Firedamp strictly distinguishes between three tiers of verification evidence:
-
-1. **Unit Tests (In-Memory)**: Unit tests evaluate canary synthesis, reporter calculation, AST logic, adapter parsing, and policy evaluation without network calls.
-2. **Offline Integration Simulations**: Deterministic simulations in `tests/integration/openwebui_cve_2026_28788/simulations/` mock complete HTTP request/response payloads (including patched and vulnerable JSON fixtures) to verify classification logic, lab safety rules, and sanitization pipelines without running Docker.
-3. **Live Docker Differential Validation**: Real container executions against pinned upstream Open WebUI images (`v0.8.5` vs `v0.8.6`), independently reading back content and verifying hash integrity.
-
-### Current Test Suite Verification Status
-- **Root Test Suite**: **266 passed** (`python3 -m unittest discover -s tests -v`).
-- **Integration Simulations**: **68 passed** (`python3 -m unittest discover -s tests/integration/openwebui_cve_2026_28788/simulations -v`).
-- **Total Automated Tests**: **334 passed** (0 failures, 0 errors).
-- **Codebase Quality**: Clean Python bytecode compilation (`compileall`) and zero whitespace warnings across all files.
-
-*(Note: Live Docker differential validation was conducted for CVE-2026-28788. Other catalogued CVEs are verified via unit tests and simulation harnesses).*
-
----
-
-## ⚡ Installation & Usage
-
-<a id="quickstart"></a>
-
-### 1. Prerequisites
-- Python 3.10, 3.11, or 3.12.
-- Git.
-- Docker Engine (optional; required only for running live container targets in the integration lab).
-
-### 2. Setup
-```bash
-# Clone the repository
-git clone https://github.com/pr60t/firedamp.git
-cd firedamp
-
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install Firedamp in editable mode with development dependencies
-pip install -e ".[dev]"
-```
-
-### 3. Basic Commands
-
-#### Display Help
-```bash
-firedamp --help
-# or run directly:
-python3 cli.py --help
-```
-
-#### Run a Simulation (Dry-Run Mode)
-Execute the complete probing, detection, and reporting pipeline in simulation mode without external containers or network access:
-```bash
-firedamp scan --dry-run
-```
-
-#### Run the Version Ladder Benchmark Simulation
-Evaluate detection accuracy and zero-false-positive guarantees against historical milestone definitions:
-```bash
-python3 tests/benchmark_ladder.py
-```
-
-#### Run the Automated Test Suites
-```bash
-# Run root test suite (266 tests)
-python3 -m unittest discover -s tests -v
-
-# Run integration simulation suite (68 tests)
-python3 -m unittest discover -s tests/integration/openwebui_cve_2026_28788/simulations -v
-```
-
-#### Run Probing Against an Existing Local Deployment
-```bash
-# Run curated Tier-1 CVE regression probes
-firedamp scan --target openwebui --target-url http://localhost:8080 --suite cve-regression
-
-# Run API authorization matrix replay across personas
-firedamp scan --target openwebui --target-url http://localhost:8080 --suite auth-matrix
-
-# Run temporal lifecycle probes (revocation races & post-revocation staleness)
-firedamp scan --target openwebui --target-url http://localhost:8080 --scenario lifecycle
-
-# Run write-side poisoning probes
-firedamp scan --target openwebui --target-url http://localhost:8080 --scenario write-poisoning
-```
-
----
-
-## 🏗️ Architecture & Probing Channels
+## 2. Architecture & Probing Channels
 
 ```text
                           ┌──────────────────────────────────────────────┐
@@ -243,7 +87,7 @@ firedamp scan --target openwebui --target-url http://localhost:8080 --scenario w
                                 └─────────────────────────────────┘
 ```
 
-Firedamp audits tenant isolation across six transmission channels:
+Firedamp evaluates cross-tenant boundaries across six transmission channels:
 - `direct_api`: Direct REST/RPC calls without prompt orchestration.
 - `llm_prompt`: Adversarial semantic prompts targeting context bleed.
 - `citation_metadata`: Document references, chunk headers, and citation sources.
@@ -253,15 +97,149 @@ Firedamp audits tenant isolation across six transmission channels:
 
 ---
 
-## 📁 Repository Structure
+## 3. Curated CVE Coverage
+
+Firedamp maintains an audited 21-entry CVE catalog classified into three verified categories ([CVE_AUDIT.md](CVE_AUDIT.md)):
+
+- **4 Executable Tier-1 Probes (Automated)**:
+  - **`CVE-2026-44560`** (*Open WebUI <= 0.8.12, fixed in 0.9.0*): Direct collection vector retrieval authorization bypass in RAG chat completions (`POST /api/chat/completions`) via predictable collection identifiers (`file-<id>`). Application-layer authorization bypass; backend-agnostic.
+  - **`CVE-2026-45398`** (*Open WebUI <= 0.9.4, fixed in 0.9.5*): Knowledge base raw UUID prefix validation bypass in collection retrieval routes (`POST /api/v1/retrieval/query/collection` and `POST /api/v1/retrieval/query/doc`) via `_validate_collection_access()`. Application-layer authorization bypass; backend-agnostic.
+  - **`CVE-2026-28788`** (*Open WebUI < 0.8.6, fixed in 0.8.6*): Cross-user batch file overwrite in ingestion (`POST /api/v1/retrieval/process/files/batch`) due to missing server-side file ownership checks. Application-layer write-mutation flaw.
+  - **`CVE-2026-54019`** (*Open WebUI < 0.9.6, fixed in 0.9.6*): Vector store query interpolation flaw when deployed with the Milvus multitenancy backend (`precondition: milvus_multitenancy`). Unescaped `resource_id` string concatenation allows boolean-true filter injection (`x' or resource_id != '' or resource_id == 'x`).
+- **7 Documented Vulnerabilities**: Authoritatively tracked for catalog completeness without executable probe implementations in this repository (`CVE-2026-45301`, `CVE-2026-44557`, `CVE-2026-54016`, `CVE-2026-54010`, `CVE-2026-45349`, `CVE-2026-44561`, `CVE-2024-31621`).
+- **10 Quarantined Historical Misattributions**: Third-party packages erroneously linked to RAG products in public databases, forensically quarantined in [`CVE_AUDIT.md`](CVE_AUDIT.md) (`CVE-2024-52306`, `CVE-2024-52307`, `CVE-2024-41133`, `CVE-2024-43407`, `CVE-2024-52308`, `CVE-2024-45388`, `CVE-2024-45389`, `CVE-2024-42475`, `CVE-2024-45391`, `CVE-2024-34359`).
+
+Detailed technical specifications, bug classes, and references are documented in [wiki/CVE-Regression-Engine.md](wiki/CVE-Regression-Engine.md).
+
+---
+
+## 4. Empirical Validation & Differentiation
+
+Firedamp strictly separates verification tiers to ensure reproducibility and prevent misleading claims:
+
+1. **Unit Test Suite**: 267 tests verifying AST logic, canary generation, policy gates, adapters, and scoring without network access.
+2. **Offline Simulation Harness**: 115 tests in `tests/integration/openwebui_cve_2026_28788/simulations/` evaluating verdict classification, evidence sanitization, and lab safety rules against mock HTTP payloads.
+3. **Simulated Version Ladder Benchmark**: Evaluates detection accuracy across 5 Open WebUI release milestones (`v0.8.5` through `v0.9.6`) using deterministic in-memory simulation (`python3 tests/benchmark_ladder.py`). Zero false positives were observed in the modeled benchmark scenarios (this is an observation within the simulation and not a universal guarantee for real deployments).
+4. **Live Docker Differential Validation (CVE-2026-28788)**: Real container differential execution against pinned upstream Open WebUI images:
+   - **Open WebUI v0.8.5** (`COMPROMISED`): Unauthorized cross-user batch overwrite succeeded; Bob mutated Alice's file.
+   - **Open WebUI v0.8.6** (`CLEAN`): Ownership check enforced; returned per-file `Permission denied: not file owner` in JSON `errors` (HTTP 200). Alice's content and SHA-256 digest remained unaltered.
+
+*Note on Cleanup Limitations*: Targeted post-probe cleanup for write-mutation probes uses best-effort file content restoration and vector deletion (`RESTORED_CONTENT_AND_MEMBERSHIP_VECTOR_UNVERIFIED`). Content restoration, membership verification, and exhaustive vector cleanup are separate properties: the recorded reset evidence indicates `preserved_other_file_count: 0` and `verified_vector_cleanup: false`. Public top-k retrieval verified the absence of tracer tokens in nearest-neighbor lookups, but cannot prove exhaustive absence across the global embedding store.
+
+---
+
+## 5. Quickstart
+
+### Prerequisites
+- Python 3.10, 3.11, or 3.12.
+- Git.
+- Docker Engine (optional; only required for live container lab execution).
+
+### Installation
+
+#### Transparent Setup from Source (Recommended)
+```bash
+# 1. Clone the repository
+git clone https://github.com/pr60t/firedamp.git
+cd firedamp
+
+# 2. Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install dependencies in editable mode
+pip install -e ".[dev]"
+
+# 4. Verify CLI setup
+firedamp --help
+```
+
+#### Optional Local Installer Script
+For unattended local workstation setup, you can inspect and execute the safety-tested local installer:
+```bash
+bash install.sh
+```
+*(The installer validates Python 3.10+, enforces strict no-clobber staging, and never overwrites pre-existing user directories).*
+
+### Run Instant Simulation (Dry-Run Mode)
+```bash
+firedamp scan --dry-run
+```
+
+---
+
+## 6. CLI Overview
+
+The `firedamp` CLI provides commands for scanning, target discovery, and version checking:
+
+| Command | Description |
+| :--- | :--- |
+| `firedamp scan [OPTIONS]` | Executes isolation scans, CVE regression probes, and authorization matrix replays. |
+| `firedamp list-targets` | Lists supported and planned target adapters. |
+| `firedamp version` | Displays version and sensor status. |
+
+### Key `firedamp scan` Options
+- `-t, --target <str>`: Target platform adapter name (default: `openwebui`).
+- `-u, --target-url <str>`: URL of an existing deployment (e.g. `http://localhost:8080`).
+- `-v, --version <str>`: Container image tag for ephemeral Docker runs (default: `latest`).
+- `-n, --canaries <int>`: Number of canary documents to plant (default: `4`).
+- `-o, --output <str>`: Path to export audit report.
+- `-f, --format <str>`: Audit report format: `json`, `markdown`, or `sarif` (default: `json`).
+- `--fail-on-leak`: Exit code 1 if a canary leak is detected.
+- `--dry-run`: Run simulated scan without network or Docker containers.
+- `--cpu-only`: Run Docker target container without GPU/Ollama dependencies.
+- `-s, --suite <str>`: Probing suite: `default`, `cve-regression`, `auth-matrix`, `lifecycle`, `write-poisoning`, `agent-memory`, `all` (default: `default`).
+- `-sc, --scenario <str>`: Targeted attack scenario: `lifecycle`, `write-poisoning`, `agent-memory`.
+- `-p, --policy <str>`: Path to declarative YAML policy file.
+- `-db, --vector-db <str>`: Target vector database backend: `chroma`, `milvus`, `qdrant` (default: `chroma`).
+- `-m, --multitenancy <str>`: Multitenancy architecture mode: `shared`, `isolated` (default: `shared`).
+
+Full CLI usage instructions and recipe examples are available in [wiki/CLI-Reference.md](wiki/CLI-Reference.md) and [wiki/Use-Cases-&-Recipes.md](wiki/Use-Cases-&-Recipes.md).
+
+---
+
+## 7. API Authorization Matrix (RAG Autorize)
+
+Firedamp implements multi-persona request capture and replay to detect broken object-level authorization across RAG APIs:
+- Replays legitimate owner requests across 4 personas: **`Owner`** (Alice), **`Intruder`** (Bob), **`Ex-Member`** (Revoked), and **`Anonymous`** (Unauthenticated).
+- Compares responses using **Structural Key Diffing (Jaccard Index)** and **Canary Matching** to detect leaks even behind soft HTTP 200 wrappers.
+- For complete details, see [wiki/API-Authorization-Matrix.md](wiki/API-Authorization-Matrix.md).
+
+---
+
+## 8. Telemetry & Scoring
+
+Audit results are summarized in the **Firedamp Index** (0.0 to 100.0), a composite metric calculated from:
+- **Exfiltration Ratio (40%)**: Fraction of executed probes that retrieved sensitive data.
+- **Canary Penetration (40%)**: Fraction of planted canary documents compromised.
+- **Leak Severity Weight (20%)**: Weighted penalty for direct leaks (`DIRECT_LEAK`) versus contextual fragments (`CONTEXT_LEAK`).
+
+An index of `0.0` represents a clean atmosphere (`AIRWAY SAFE`). Any score `> 0.0` indicates detected gas (`GAS DETECTED`). Detailed metric definitions are in [wiki/Understanding-Telemetry.md](wiki/Understanding-Telemetry.md).
+
+---
+
+## 9. Safe Integration Lab (CVE-2026-28788)
+
+The repository provides an isolated differential lab harness in [`tests/integration/openwebui_cve_2026_28788/`](tests/integration/openwebui_cve_2026_28788/):
+- **Pinned Loopback Ports**: `127.0.0.1:13085` (`v0.8.5`) and `127.0.0.1:13086` (`v0.8.6`).
+- **Disposable Registry**: All write mutations require registration in `_TRUSTED_SCAN_REGISTRY` before execution.
+- **Automated Evidence Sanitization**: Pipeline scrubs tokens, keys, hostnames, and local paths into sanitized bundles.
+
+> [!CAUTION]
+> Never execute write-poisoning or destructive probes against production deployments. Use dedicated, disposable local instances.
+
+---
+
+## 10. Repository Structure
 
 ```text
 .
-├── core/                # Canary generation, reporter & target lifecycle
+├── core/                # Canary generation, reporter, policy, & authorization matrix
 │   ├── engine.py        # Cryptographic canary engine & zero-VRAM matcher
 │   ├── matrix.py        # Read-only authorization matrix replay runner
 │   ├── policy.py        # Declarative Policy-as-Code evaluator
-│   └── reporter.py      # Telemetry rendering, Firedamp Index & exports
+│   ├── reporter.py      # Telemetry rendering, Firedamp Index & exports
+│   └── target.py        # Remote and Docker target managers
 ├── adapters/            # Target platform drivers
 │   ├── base.py          # TargetAdapter abstract protocol & registry
 │   └── openwebui/       # Modular Open WebUI driver (auth, ingest, query, lifecycle)
@@ -284,6 +262,22 @@ Firedamp audits tenant isolation across six transmission channels:
 
 ---
 
-## 📄 License
+## 11. Documentation & Wiki Index
 
-MIT License. See [LICENSE](LICENSE) for details.
+For in-depth guides and specifications, refer to the project wiki:
+- [Home](wiki/Home.md): Project overview and portal.
+- [Quickstart](wiki/Quickstart.md): Step-by-step setup and first scan.
+- [CLI Reference](wiki/CLI-Reference.md): Complete options, flags, and usage guide.
+- [CVE Regression Engine](wiki/CVE-Regression-Engine.md): Bug taxonomy, Tier-1 probes, and catalog.
+- [API Authorization Matrix](wiki/API-Authorization-Matrix.md): Structural diffing and multi-persona replay.
+- [Use Cases & Recipes](wiki/Use-Cases-&-Recipes.md): Practical commands for CI/CD and staging.
+- [Version Ladder Benchmark](wiki/Version-Ladder-Benchmark.md): Simulated benchmark methodology and metrics.
+- [Understanding Telemetry](wiki/Understanding-Telemetry.md): Scoring formulas and report formats.
+
+---
+
+## 12. License & Attribution
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+
+Firedamp was created to protect multi-tenant AI environments by detecting boundary leaks before they result in data breaches.

@@ -95,6 +95,81 @@ class TestLabSafety(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not authoritatively owned by Alice"):
             verify_setup_target(setup, lambda *args, **kwargs: next(responses))
 
+    def test_verify_setup_target_returns_actual_readback_content_length(self):
+        import hashlib
+        actual_text = "Verified Alice baseline content with exact length."
+        expected_hash = hashlib.sha256(actual_text.encode("utf-8")).hexdigest()
+        setup = {
+            "base_url": "http://127.0.0.1:13085",
+            "lab_identity": {"expected_version": "0.8.5"},
+            "alice": {"token": "alice-token", "user_id": "alice-id"},
+            "bob": {"token": "bob-token", "user_id": "bob-id"},
+            "knowledge_base": {"id": "kb-id"},
+            "disposable_file": {
+                "id": "file-id",
+                "filename": "alice_disposable.txt",
+                "original_content_sha256": expected_hash,
+                "original_content_length": len(actual_text),
+            },
+        }
+        responses = iter([
+            {"status_code": 200, "data": {"version": "0.8.5"}, "error": None},
+            {"status_code": 200, "data": {"id": "alice-id", "role": "user"}, "error": None},
+            {"status_code": 200, "data": {"id": "bob-id", "role": "user"}, "error": None},
+            {"status_code": 200, "data": {"id": "kb-id", "user_id": "alice-id"}, "error": None},
+            {"status_code": 200, "data": {"id": "file-id", "user_id": "alice-id", "filename": "alice_disposable.txt"}, "error": None},
+            {"status_code": 200, "data": {"id": "file-id"}, "error": None},
+            {"status_code": 200, "data": {"items": [{"id": "file-id"}], "total": 1}, "error": None},
+            {"status_code": 200, "data": {"content": actual_text}, "error": None},
+        ])
+        verified = verify_setup_target(setup, lambda *args, **kwargs: next(responses), require_baseline=True)
+        self.assertEqual(verified["content_length"], len(actual_text))
+        self.assertEqual(verified["content_sha256"], expected_hash)
+        self.assertTrue(verified["baseline_verified"])
+
+    def test_verify_setup_target_uses_utf8_byte_length_for_non_ascii_content(self):
+        import hashlib
+        non_ascii_text = "café — naïve 🚀"
+        char_len = len(non_ascii_text)
+        byte_len = len(non_ascii_text.encode("utf-8"))
+        self.assertNotEqual(char_len, byte_len)
+        expected_hash = hashlib.sha256(non_ascii_text.encode("utf-8")).hexdigest()
+
+        def make_responses():
+            return iter([
+                {"status_code": 200, "data": {"version": "0.8.5"}, "error": None},
+                {"status_code": 200, "data": {"id": "alice-id", "role": "user"}, "error": None},
+                {"status_code": 200, "data": {"id": "bob-id", "role": "user"}, "error": None},
+                {"status_code": 200, "data": {"id": "kb-id", "user_id": "alice-id"}, "error": None},
+                {"status_code": 200, "data": {"id": "file-id", "user_id": "alice-id", "filename": "alice_disposable.txt"}, "error": None},
+                {"status_code": 200, "data": {"id": "file-id"}, "error": None},
+                {"status_code": 200, "data": {"items": [{"id": "file-id"}], "total": 1}, "error": None},
+                {"status_code": 200, "data": {"content": non_ascii_text}, "error": None},
+            ])
+
+        setup = {
+            "base_url": "http://127.0.0.1:13085",
+            "lab_identity": {"expected_version": "0.8.5"},
+            "alice": {"token": "alice-token", "user_id": "alice-id"},
+            "bob": {"token": "bob-token", "user_id": "bob-id"},
+            "knowledge_base": {"id": "kb-id"},
+            "disposable_file": {
+                "id": "file-id",
+                "filename": "alice_disposable.txt",
+                "original_content_sha256": expected_hash,
+                "original_content_length": byte_len,
+            },
+        }
+        responses = make_responses()
+        verified = verify_setup_target(setup, lambda *args, **kwargs: next(responses), require_baseline=True)
+        self.assertEqual(verified["content_length"], byte_len)
+
+        # Character length instead of UTF-8 byte length must fail closed
+        setup["disposable_file"]["original_content_length"] = char_len
+        responses = make_responses()
+        with self.assertRaisesRegex(RuntimeError, "content length does not match"):
+            verify_setup_target(setup, lambda *args, **kwargs: next(responses), require_baseline=True)
+
 
 
 if __name__ == "__main__":
