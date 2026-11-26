@@ -264,13 +264,14 @@ def verify_setup_target(
     if metadata.get("filename") != disposable["filename"]:
         raise RuntimeError("Target file filename does not match the expected disposable fixture")
 
-    # Confirm Bob has the intended read path but do not attempt a write to test ACLs.
+    # Confirm Bob can access target file metadata (GET /api/v1/files/{file_id});
+    # does not test or claim file content read permission, and write permissions are not tested destructively.
     bob_file_metadata = _require_success(
         request_fn(f"{base_url}/api/v1/files/{file_id}", method="GET", headers=bob_headers),
         "Bob read-only target metadata access",
     )
     if not isinstance(bob_file_metadata, dict) or bob_file_metadata.get("id") != file_id:
-        raise RuntimeError("Bob cannot verify read access to the shared disposable file")
+        raise RuntimeError("Bob cannot verify metadata access to the target file")
 
     file_ids = fetch_complete_file_ids(base_url, kb["id"], alice_headers, request_fn)
     if file_id not in file_ids:
@@ -283,11 +284,13 @@ def verify_setup_target(
     content = content_data.get("content") if isinstance(content_data, dict) else content_data
     if not isinstance(content, str):
         raise RuntimeError("Alice indexed content readback did not contain a string content field")
-    actual_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    content_bytes = content.encode("utf-8")
+    actual_hash = hashlib.sha256(content_bytes).hexdigest()
+    actual_length_bytes = len(content_bytes)
     if require_baseline and actual_hash != disposable["original_content_sha256"]:
         raise RuntimeError("Disposable target content does not match the setup baseline; refusing probe")
     expected_length = disposable.get("original_content_length")
-    if require_baseline and expected_length is not None and len(content) != expected_length:
+    if require_baseline and expected_length is not None and actual_length_bytes != expected_length:
         raise RuntimeError("Disposable target content length does not match the setup baseline")
 
     return {
@@ -298,5 +301,6 @@ def verify_setup_target(
         "bob_user_id": bob["user_id"],
         "file_ids_in_kb": file_ids,
         "content_sha256": actual_hash,
+        "content_length": actual_length_bytes,
         "baseline_verified": actual_hash == disposable["original_content_sha256"],
     }

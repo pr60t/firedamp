@@ -1,0 +1,20 @@
+include LICENSE
+include README.md
+include pyproject.toml
+include requirements.txt
+include install.sh
+include probes/cves/cve_catalog.json
+
+recursive-include core *.py
+recursive-include adapters *.py
+recursive-include probes *.py
+recursive-include tests *.py
+recursive-include policies *.yaml
+
+exclude firedamp_release_review_bundle.sh
+exclude CHANGELOG.md
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude graphify-out *
+recursive-exclude tests/integration/openwebui_cve_2026_28788/evidence *
+recursive-exclude .venv *

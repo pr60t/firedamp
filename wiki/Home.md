@@ -24,8 +24,19 @@ In modern multi-tenant AI platforms (like Open WebUI), proprietary documents oft
 | **[[CVE-Regression-Engine\|CVE Regression Engine]]** | Deep dive into the 8 bug classes, Tier-1 behavioral probes, and catalog. |
 | **[[API-Authorization-Matrix\|API Authorization Matrix]]** | RAG Autorize request replay across Owner, Intruder, Ex-Member, Anonymous. |
 | **[[Use-Cases-&-Recipes\|Use Cases & Recipes]]** | Ready-to-copy commands for Docker, staging servers, and CI/CD. |
-| **[[Version-Ladder-Benchmark\|Version Ladder Benchmark]]** | Empirical CVE detection rate (100%) and zero-false-positive metrics across 5 Open WebUI releases. |
+| **[[Version-Ladder-Benchmark\|Version Ladder Benchmark]]** | Observed simulation benchmark results and metrics across 5 Open WebUI releases. |
 | **[[Understanding-Telemetry\|Understanding Telemetry]]** | How the Firedamp Index (0-100) works and what breach reports mean. |
+
+---
+
+### 🔬 Evidence, Labs & Audits
+
+| Resource | Description |
+| :--- | :--- |
+| **[CVE-2026-28788 Integration Lab](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/README.md)** | Step-by-step reproduction harness, Docker compose files, and scripts. |
+| **[Sanitized Evidence Bundles](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/evidence/)** | Historical and offline simulation test evidence runs with cryptographic manifests. |
+| **[CVE Forensic Catalog Audit (CVE_AUDIT.md)](file:///home/user/firedamp/CVE_AUDIT.md)** | Authoritative 21-vulnerability breakdown and historical misattribution audit. |
+| **[Repository Audit & Findings (FINAL_AUDIT.md)](file:///home/user/firedamp/FINAL_AUDIT.md)** | Comprehensive security findings, remediation logs, and resolver architecture. |
 
 ---
 
