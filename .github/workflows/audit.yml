@@ -1,4 +1,4 @@
-name: Firedamp Atmospheric RAG Isolation Audit
+name: Firedamp Simulation Smoke Test
 
 on:
   push:
@@ -9,13 +9,16 @@ on:
 
 permissions:
   contents: read
-  security-events: write
+
+concurrency:
+  group: simulation-smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  rag-isolation-audit:
-    name: Cross-Tenant Leak Audit (Open WebUI)
+  simulation-smoke:
+    name: CLI Dry-Run Simulation Smoke Check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout Repository
@@ -24,7 +27,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
       - name: Install Firedamp & Dependencies
@@ -32,35 +35,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Run Firedamp Isolation Scan (Markdown & Step Summary)
-        id: scan-markdown
+      - name: Run Simulated Dry-Run Smoke Check (Markdown)
         run: |
+          echo "### [SIMULATION DRY-RUN] Non-live CLI smoke output" >> "$GITHUB_STEP_SUMMARY"
           python cli.py scan \
             --target openwebui \
             --cpu-only \
-            --output firedamp-report.md \
+            --output /tmp/firedamp-sim-report.md \
             --format markdown \
             --canaries 4 \
             --dry-run
-          cat firedamp-report.md >> $GITHUB_STEP_SUMMARY
+          cat /tmp/firedamp-sim-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run Security Audit with SARIF Output
-        id: scan-sarif
-        if: always()
+      - name: Run Simulated Dry-Run Smoke Check (SARIF Generation Only)
         run: |
           python cli.py scan \
             --target openwebui \
             --cpu-only \
-            --output firedamp-results.sarif \
+            --output /tmp/firedamp-sim-results.sarif \
             --format sarif \
             --canaries 4 \
             --fail-on-leak \
             --dry-run
-
-      - name: Upload SARIF to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: firedamp-results.sarif
-          category: firedamp-rag-isolation
-
+          python -c "import json; data = json.load(open('/tmp/firedamp-sim-results.sarif')); assert data['version'] == '2.1.0'"

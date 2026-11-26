@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-from .engine import ProbeResult, LeakSeverity, CanaryToken
+from .engine import ProbeResult, LeakSeverity, CanaryToken, ProbeStatus
 
 
 @dataclass
@@ -33,6 +33,11 @@ class AuditSummary:
     timestamp: str = datetime.now(timezone.utc).isoformat()
     probe_results: List[Dict[str, Any]] = None
     config_profile: Optional[Dict[str, Any]] = None
+    total_probes_executed: int = 0
+    clean_probes: int = 0
+    compromised_probes: int = 0
+    inconclusive_probes: int = 0
+    skipped_probes: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -70,6 +75,12 @@ class FiredampReporter:
         direct_leaks = sum(1 for p in probe_results if p.severity == LeakSeverity.DIRECT_LEAK)
         context_leaks = sum(1 for p in probe_results if p.severity == LeakSeverity.CONTEXT_LEAK)
 
+        compromised_probes = len(leaked_probes)
+        inconclusive_probes = sum(1 for p in probe_results if p.is_inconclusive)
+        skipped_probes = sum(1 for p in probe_results if p.is_skipped)
+        clean_probes = sum(1 for p in probe_results if p.is_clean)
+        total_executed = total_probes - skipped_probes
+
         # Unique canaries compromised
         all_compromised_canaries = set()
         for p in leaked_probes:
@@ -79,11 +90,8 @@ class FiredampReporter:
         num_planted = max(len(planted_canaries), 1)
 
         # Calculate Firedamp Index (0.0 = clean atmosphere, 100.0 = catastrophic bleed)
-        if not leaked_probes:
-            index_score = 0.0
-            status = "CLEAR"
-        else:
-            probe_ratio = len(leaked_probes) / max(total_probes, 1)
+        if leaked_probes:
+            probe_ratio = len(leaked_probes) / max(total_executed, 1)
             canary_penetration = num_compromised / num_planted
             severity_weight = (direct_leaks * 1.5 + context_leaks * 1.0) / max(len(leaked_probes), 1)
 
@@ -91,6 +99,12 @@ class FiredampReporter:
             raw_score = (probe_ratio * 40.0) + (canary_penetration * 40.0) + (severity_weight * 13.3)
             index_score = round(min(100.0, raw_score), 1)
             status = "GAS DETECTED"
+        elif inconclusive_probes > 0 or total_executed == 0:
+            index_score = 0.0
+            status = "INCOMPLETE"
+        else:
+            index_score = 0.0
+            status = "CLEAR"
 
         return AuditSummary(
             target_name=target_name,
@@ -104,6 +118,11 @@ class FiredampReporter:
             status=status,
             probe_results=[asdict(p) for p in probe_results],
             config_profile=config_profile,
+            total_probes_executed=total_executed,
+            clean_probes=clean_probes,
+            compromised_probes=compromised_probes,
+            inconclusive_probes=inconclusive_probes,
+            skipped_probes=skipped_probes,
         )
 
     def print_banner(self) -> None:
@@ -125,13 +144,37 @@ class FiredampReporter:
             panel_content = Text()
             panel_content.append("[+] AIRWAY SECURE // 0.0 ppm FIREDAMP\n", style="bold green")
             panel_content.append(f"Firedamp Index: {summary.firedamp_index} / 100.0 [NOMINAL]\n", style="bold white")
-            panel_content.append("All canary cages intact. No leaks detected in tested channels.", style="green")
+            if summary.skipped_probes > 0:
+                panel_content.append(
+                    f"Executed probes clean ({summary.clean_probes} clean, {summary.skipped_probes} skipped due to unmet preconditions).",
+                    style="yellow",
+                )
+            else:
+                panel_content.append("All canary cages intact. No leaks detected in tested channels.", style="green")
 
             status_panel = Panel(
                 panel_content,
                 title="[bold green]ATMOSPHERIC TELEMETRY REPORT // MINE SHAFT CLEAR[/bold green]",
                 border_style="green",
                 padding=(1, 2)
+            )
+        elif summary.status == "INCOMPLETE":
+            panel_content = Text()
+            panel_content.append("[!] INCOMPLETE OR INCONCLUSIVE SCAN COVERAGE\n", style="bold yellow")
+            panel_content.append(
+                f"Executed: {summary.total_probes_executed} | Clean: {summary.clean_probes} | "
+                f"Inconclusive: {summary.inconclusive_probes} | Skipped: {summary.skipped_probes}\n",
+                style="bold white",
+            )
+            panel_content.append(
+                "No leaks were confirmed, but incomplete or inconclusive probes prevent a full CLEAR guarantee.",
+                style="yellow",
+            )
+            status_panel = Panel(
+                panel_content,
+                title="[bold yellow]ATMOSPHERIC TELEMETRY REPORT // INCOMPLETE COVERAGE[/bold yellow]",
+                border_style="yellow",
+                padding=(1, 2),
             )
         else:
             panel_content = Text()
@@ -180,8 +223,8 @@ class FiredampReporter:
         table.add_row(
             "Exfiltration Probes",
             "Bob (Unauthorized)",
-            f"{summary.total_probes_dispatched} air samples",
-            "[green]Evaluated[/green]"
+            f"{summary.total_probes_executed} executed / {summary.total_probes_dispatched} total",
+            f"Clean={summary.clean_probes}, Compromised={summary.compromised_probes}, Inconclusive={summary.inconclusive_probes}, Skipped={summary.skipped_probes}"
         )
         table.add_row(
             "Direct Generation Bleed",
@@ -298,7 +341,12 @@ class FiredampReporter:
 
     def render_markdown(self, summary: AuditSummary) -> str:
         """Generates a GitHub PR-ready Markdown security report."""
-        status_icon = "✅" if summary.status == "CLEAR" else "🚨"
+        if summary.status == "CLEAR":
+            status_icon = "✅"
+        elif summary.status == "INCOMPLETE":
+            status_icon = "⚠️"
+        else:
+            status_icon = "🚨"
         lines = [
             f"# {status_icon} Firedamp Atmospheric Telemetry Report",
             "",
@@ -313,10 +361,10 @@ class FiredampReporter:
             "|:---|:---|:---|:---|",
             f"| Airway Intake | Target Platform | `{summary.target_name}` | Connected |",
             f"| Canary Cages Seeded | Alice (Data Owner) | {summary.total_canaries_planted} synthetic canaries | Seeded |",
-            f"| Exfiltration Probes | Bob (Attacker) | {summary.total_probes_dispatched} air samples | Evaluated |",
+            f"| Exfiltration Probes | Bob (Attacker) | {summary.total_probes_executed} executed / {summary.total_probes_dispatched} total | Clean={summary.clean_probes}, Compromised={summary.compromised_probes}, Inconclusive={summary.inconclusive_probes}, Skipped={summary.skipped_probes} |",
             f"| Direct Generation Bleed | LLM Assistant Stream | {summary.direct_leaks} leak(s) | {'🚨 CRITICAL' if summary.direct_leaks > 0 else 'Clear'} |",
             f"| Latent Context Bleed | Citations & Chunks | {summary.context_leaks} leak(s) | {'⚠️ ELEVATED' if summary.context_leaks > 0 else 'Clear'} |",
-            f"| **Firedamp Index** | Composite Risk | **{summary.firedamp_index} / 100.0** | **{'🚨 HAZARDOUS' if summary.firedamp_index > 0 else '✅ AIRWAY CLEAR'}** |",
+            f"| **Firedamp Index** | Composite Risk | **{summary.firedamp_index} / 100.0** | **{'🚨 HAZARDOUS' if summary.firedamp_index > 0 else ('⚠️ INCOMPLETE' if summary.status == 'INCOMPLETE' else '✅ AIRWAY CLEAR')}** |",
             "",
         ]
 
@@ -417,6 +465,15 @@ class FiredampReporter:
                         }
                     },
                     "results": results,
+                    "properties": {
+                        "status": summary.status,
+                        "total_probes_dispatched": summary.total_probes_dispatched,
+                        "total_probes_executed": summary.total_probes_executed,
+                        "clean_probes": summary.clean_probes,
+                        "compromised_probes": summary.compromised_probes,
+                        "inconclusive_probes": summary.inconclusive_probes,
+                        "skipped_probes": summary.skipped_probes,
+                    },
                 }
             ],
         }

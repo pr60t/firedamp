@@ -3,6 +3,7 @@ include README.md
 include pyproject.toml
 include requirements.txt
 include install.sh
+include .env.example
 include probes/cves/cve_catalog.json
 
 recursive-include core *.py

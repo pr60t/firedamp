@@ -11,10 +11,15 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: sync-wiki
+  cancel-in-progress: false
+
 jobs:
   sync-wiki:
     name: Sync Wiki to GitHub
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout Source Repository
@@ -24,29 +29,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           WIKI_REPO="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
-          
+          WIKI_DIR="/tmp/wiki_repo"
+
           echo "Cloning GitHub Wiki repository..."
-          if git clone "$WIKI_REPO" /tmp/wiki_repo; then
-            echo "Wiki cloned successfully. Syncing files from wiki/..."
-            
-            # Copy all files and assets from wiki/ into wiki_repo
-            cp -r wiki/* /tmp/wiki_repo/
-            
-            cd /tmp/wiki_repo
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add .
-            
-            # Check if there are changes to commit
-            if git diff-index --quiet HEAD --; then
-              echo "No changes detected. Wiki is already up to date."
-            else
-              git commit -m "docs(wiki): automated sync from main repository [skip ci]"
-              git push origin HEAD
-              echo "✅ GitHub Wiki successfully synchronized!"
-            fi
-          else
-            echo "::warning ::Could not clone wiki repository. Ensure the Wiki tab is initialized with at least one page on GitHub (https://github.com/${{ github.repository }}/wiki)."
+          if ! git clone "$WIKI_REPO" "$WIKI_DIR"; then
+            echo "::error::Failed to clone wiki repository. Ensure the Wiki tab is initialized on GitHub."
+            exit 1
           fi
 
+          echo "Mirroring wiki/ into $WIKI_DIR (preserving .git metadata and removing deleted pages)..."
+          rsync -a --delete --exclude='.git/' --exclude='.git' wiki/ "$WIKI_DIR"/
+
+          # Verify mirrored tree matches wiki/ (excluding .git)
+          if ! diff -rq --exclude='.git' wiki/ "$WIKI_DIR"/; then
+            echo "::error::Mirrored wiki directory does not match source wiki/ tree."
+            exit 1
+          fi
+
+          cd "$WIKI_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes detected. Wiki is already up to date."
+          else
+            git commit -m "docs(wiki): automated sync from main repository [skip ci]"
+            if ! git push origin HEAD; then
+              echo "::error::Failed to push synchronized wiki changes."
+              exit 1
+            fi
+            echo "GitHub Wiki successfully synchronized."
+          fi

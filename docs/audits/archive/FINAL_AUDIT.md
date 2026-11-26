@@ -1,5 +1,10 @@
 # Firedamp — Final Repository Audit
 
+> **Historical Archive Notice:**
+> - **Audit Date:** 2026-11-24 | **Baseline:** `a6fe4ef51799e6a5b526c8e3bed8fd53f52da3ef` (`fix/cve-catalog-integrity`)
+> - **Scope:** Historical pre-release snapshot, split Git index, and integration lab scripts (simulated + operator-reported live differential).
+> - **Status:** **HISTORICAL — SUPERSEDED.** Findings `AUD-01` through `AUD-11` were remediated in [FINAL_AUDIT_REMEDIATION.md](FINAL_AUDIT_REMEDIATION.md), `v0.1.0`, and post-release hardening. See [docs/audits/README.md](../README.md) for the current reconciled register.
+
 **Audit date:** 2026-11-24
 **Reviewed baseline:** `a6fe4ef51799e6a5b526c8e3bed8fd53f52da3ef`
 **Branch reported by the working-tree snapshot:** `fix/cve-catalog-integrity`

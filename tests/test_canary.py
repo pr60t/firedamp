@@ -279,6 +279,15 @@ class TestCanaryEngine(unittest.TestCase):
         self.assertEqual(sarif["runs"][0]["results"][0]["ruleId"], "FRDP001")
         self.assertEqual(sarif["runs"][0]["results"][0]["level"], "error")
 
+    @patch.dict(
+        os.environ,
+        {
+            "FIREDAMP_ALICE_USERNAME": "alice_owner",
+            "FIREDAMP_ALICE_PASSWORD": "TestAliceEnvPassword!1",
+            "FIREDAMP_BOB_USERNAME": "bob_attacker",
+            "FIREDAMP_BOB_PASSWORD": "TestBobEnvPassword!2",
+        },
+    )
     @patch("cli.RemoteTargetManager")
     @patch("cli.get_adapter")
     def test_e2e_mocked_scan_flow_success(self, mock_get_adapter, mock_target_mgr_cls):
@@ -286,7 +295,7 @@ class TestCanaryEngine(unittest.TestCase):
         mock_mgr = MagicMock()
         mock_env = TargetEnvironment(
             name="openwebui",
-            base_url="http://mock-target:8080",
+            base_url="http://127.0.0.1:8080",
             managed_by_docker=False
         )
         mock_mgr.start.return_value = mock_env
@@ -325,7 +334,7 @@ class TestCanaryEngine(unittest.TestCase):
         try:
             exit_code = run_scan_flow(
                 target="openwebui",
-                target_url="http://mock-target:8080",
+                target_url="http://127.0.0.1:8080",
                 canaries=2,
                 output=tmp_path,
                 format="json",
@@ -335,16 +344,16 @@ class TestCanaryEngine(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             mock_adapter.authenticate_user.assert_any_call(
-                "http://mock-target:8080", username="alice_owner", password="AegisPassword!123", role="owner"
+                "http://127.0.0.1:8080", username="alice_owner", password="TestAliceEnvPassword!1", role="owner"
             )
             mock_adapter.authenticate_user.assert_any_call(
-                "http://mock-target:8080", username="bob_attacker", password="BobPassword!456", role="attacker"
+                "http://127.0.0.1:8080", username="bob_attacker", password="TestBobEnvPassword!2", role="attacker"
             )
             self.assertEqual(mock_adapter.ingest_document.call_count, 2)
             self.assertEqual(mock_adapter.query_rag.call_count, 3)  # 1 baseline + 2 Bob probes
             self.assertEqual(mock_adapter.cleanup.call_count, 2)
-            self.assertEqual(mock_adapter.cleanup.call_args_list[0].args, ("http://mock-target:8080", alice_session))
-            self.assertEqual(mock_adapter.cleanup.call_args_list[1].args[0], "http://mock-target:8080")
+            self.assertEqual(mock_adapter.cleanup.call_args_list[0].args, ("http://127.0.0.1:8080", alice_session))
+            self.assertEqual(mock_adapter.cleanup.call_args_list[1].args[0], "http://127.0.0.1:8080")
             self.assertEqual(mock_adapter.cleanup.call_args_list[1].args[1].username, "bob_attacker")
 
             with open(tmp_path, "r", encoding="utf-8") as f:
@@ -357,18 +366,29 @@ class TestCanaryEngine(unittest.TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    @patch.dict(
+        os.environ,
+        {
+            "FIREDAMP_ALICE_USERNAME": "alice_owner",
+            "FIREDAMP_ALICE_PASSWORD": "TestAliceEnvPassword!1",
+            "FIREDAMP_BOB_USERNAME": "bob_attacker",
+            "FIREDAMP_BOB_PASSWORD": "TestBobEnvPassword!2",
+        },
+    )
     @patch("cli.RemoteTargetManager")
     @patch("cli.get_adapter")
     @patch("cli.reporter.log_alert")
     def test_positive_baseline_failure_warning(self, mock_log_alert, mock_get_adapter, mock_target_mgr_cls):
         """Verify that scan warns user when Alice cannot retrieve her own canaries (indexing failure)."""
         mock_mgr = MagicMock()
-        mock_env = TargetEnvironment(name="openwebui", base_url="http://mock-target:8080", managed_by_docker=False)
+        mock_env = TargetEnvironment(name="openwebui", base_url="http://127.0.0.1:8080", managed_by_docker=False)
         mock_mgr.start.return_value = mock_env
         mock_target_mgr_cls.return_value = mock_mgr
 
         mock_adapter = MagicMock(spec=TargetAdapter)
-        mock_adapter.authenticate_user.return_value = UserSession(username="alice", role="owner")
+        def fake_auth(url, username, password, role="user"):
+            return UserSession(username=username, role=role, token=f"tok_{username}")
+        mock_adapter.authenticate_user.side_effect = fake_auth
         mock_adapter.ingest_document.return_value = "kb-1"
 
         # Alice's baseline probe fails to retrieve any canary
@@ -377,7 +397,7 @@ class TestCanaryEngine(unittest.TestCase):
 
         exit_code = run_scan_flow(
             target="openwebui",
-            target_url="http://mock-target:8080",
+            target_url="http://127.0.0.1:8080",
             canaries=2,
             dry_run=False,
         )

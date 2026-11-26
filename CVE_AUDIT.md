@@ -1,5 +1,9 @@
 # Firedamp Security Regression Engine: Third-Pass Forensic Verification Audit & Data Integrity Report
 
+> **Historical Record Notice (2026-11-18):**
+> - **Audit Date:** 2026-11-18 | **Baseline Branch:** `fix/cve-catalog-integrity` | **Validation Type:** Advisory verification & offline simulation only (`NOT TESTED` against live containers as of 2026-11-18).
+> - **Post-Audit Supplement:** For the later operator-reported live differential validation of `CVE-2026-28788` (Open WebUI `v0.8.5` vs `v0.8.6`) and current status across all entries, see [docs/audits/README.md](docs/audits/README.md).
+
 - **Audit Date:** 2026-11-18
 - **Audit Target:** `fix/cve-catalog-integrity` branch
 - **Auditor:** Senior Application Security Researcher & Vulnerability Analyst

@@ -40,7 +40,7 @@ In multi-tenant AI and RAG platforms (such as Open WebUI), documents and vector 
 Firedamp automates non-weaponized behavioral security testing across the retrieval and ingestion lifecycle:
 1. **Plants High-Entropy Canaries**: Seeds verifiable synthetic canary tokens (`CANARY-FRDP-...`) into a data owner's private scope (**Alice**).
 2. **Executes Adversarial Probes**: Fires unprivileged retrieval queries, direct API calls, and mutation requests as an unauthorized tenant (**Bob**).
-3. **Classifies Telemetry**: Detects token bleed in chat completions, citation metadata, or direct vector responses, producing a deterministic verdict (`CLEAN`, `COMPROMISED`, or fail-closed `INCONCLUSIVE`) and a composite **Firedamp Index** (0.0 to 100.0).
+3. **Classifies Telemetry**: Detects token bleed in chat completions, citation metadata, or direct vector responses, producing an explicit per-probe verdict (`CLEAN`, `COMPROMISED`, `INCONCLUSIVE`, or `SKIPPED`) and a composite **Firedamp Index** (0.0 to 100.0). Note that `0.0` with `INCOMPLETE` status indicates unverified or skipped probes rather than full coverage.
 
 ---
 
@@ -117,12 +117,12 @@ Detailed technical specifications, bug classes, and references are documented in
 
 Firedamp strictly separates verification tiers to ensure reproducibility and prevent misleading claims:
 
-1. **Unit Test Suite**: 267 tests verifying AST logic, canary generation, policy gates, adapters, and scoring without network access.
-2. **Offline Simulation Harness**: 115 tests in `tests/integration/openwebui_cve_2026_28788/simulations/` evaluating verdict classification, evidence sanitization, and lab safety rules against mock HTTP payloads.
-3. **Simulated Version Ladder Benchmark**: Evaluates detection accuracy across 5 Open WebUI release milestones (`v0.8.5` through `v0.9.6`) using deterministic in-memory simulation (`python3 tests/benchmark_ladder.py`). Zero false positives were observed in the modeled benchmark scenarios (this is an observation within the simulation and not a universal guarantee for real deployments).
-4. **Live Docker Differential Validation (CVE-2026-28788)**: Real container differential execution against pinned upstream Open WebUI images:
-   - **Open WebUI v0.8.5** (`COMPROMISED`): Unauthorized cross-user batch overwrite succeeded; Bob mutated Alice's file.
-   - **Open WebUI v0.8.6** (`CLEAN`): Ownership check enforced; returned per-file `Permission denied: not file owner` in JSON `errors` (HTTP 200). Alice's content and SHA-256 digest remained unaltered.
+1. **Offline Unit & Regression Suite**: Verifies canary generation, policy gates, adapters, credential validation, adapter selection, status classification, installer/launcher safety, and scoring without network access (`python -m unittest discover -s tests`).
+2. **Offline Simulation Harness**: Integration simulations in `tests/integration/openwebui_cve_2026_28788/simulations/` evaluating verdict classification, evidence sanitization, and lab safety rules against mock HTTP payloads.
+3. **Simulated Version Ladder Benchmark**: Evaluates detection accuracy across 5 modeled Open WebUI release milestones (`v0.8.5` through `v0.9.6`) using deterministic in-memory simulation (`python3 tests/benchmark_ladder.py`). Zero false positives were observed within the modeled simulation; this is not a universal guarantee for real deployments.
+4. **Live Container Validation Status**:
+   - **`CVE-2026-28788` (Operator-Reported Live Differential)**: Container differential runs against pinned Open WebUI images reported `v0.8.5` as `COMPROMISED` (Bob mutated Alice's file) and `v0.8.6` as `CLEAN` (per-file `Permission denied: not file owner` in JSON `errors`; Alice's SHA-256 digest unaltered). See [docs/audits/README.md](docs/audits/README.md) for evidence provenance and attestation limitations.
+   - **`CVE-2026-44560`, `CVE-2026-45398`, `CVE-2026-54019`**: **Simulation-only** (not live-tested against upstream containers).
 
 *Note on Cleanup Limitations*: Targeted post-probe cleanup for write-mutation probes uses best-effort file content restoration and vector deletion (`RESTORED_CONTENT_AND_MEMBERSHIP_VECTOR_UNVERIFIED`). Content restoration, membership verification, and exhaustive vector cleanup are separate properties: the recorded reset evidence indicates `preserved_other_file_count: 0` and `verified_vector_cleanup: false`. Public top-k retrieval verified the absence of tracer tokens in nearest-neighbor lookups, but cannot prove exhaustive absence across the global embedding store.
 
@@ -154,27 +154,56 @@ pip install -e ".[dev]"
 firedamp --help
 ```
 
-#### Optional Local Installer Script
-For unattended local workstation setup, you can inspect and execute the safety-tested local installer:
+#### Optional Release-Pinned Linux Installer Script
+For unattended setup on **Linux** (uses kernel `renameat2(RENAME_NOREPLACE)` atomic no-clobber publication), download the release-pinned script to a temporary file, inspect it, and run it:
 ```bash
-bash install.sh
+curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/v0.1.0/install.sh -o /tmp/firedamp-install.sh
+less /tmp/firedamp-install.sh
+bash /tmp/firedamp-install.sh
 ```
-*(The installer validates Python 3.10+, enforces strict no-clobber staging, and never overwrites pre-existing user directories).*
+*(The installer defaults to ref `v0.1.0` — override with `FIREDAMP_REF` only when intentionally testing another branch/tag — validates Python 3.10+, refuses dirty local checkouts, enforces ancestor/symlink/ownership checks, and never overwrites pre-existing installation directories or launchers).*
 
-### Run Instant Simulation (Dry-Run Mode)
+### Live Scan Credentials & Identity Lifecycle
+Dry-run mode requires no credentials or network access:
 ```bash
 firedamp scan --dry-run
 ```
+
+Firedamp supports two identity lifecycle modes for live audits:
+
+#### Mode A: Existing Identities (Default: `--identity-mode existing`)
+Supply pre-existing test persona credentials via environment variables (see [`.env.example`](.env.example); passwords are never hardcoded):
+```bash
+export FIREDAMP_ALICE_USERNAME="alice_owner"
+export FIREDAMP_ALICE_PASSWORD="<alice-test-password>"
+export FIREDAMP_BOB_USERNAME="bob_attacker"
+export FIREDAMP_BOB_PASSWORD="<bob-test-password>"
+firedamp scan --target openwebui --target-url https://your-lab-instance.example
+```
+*Safety Guarantee*: Firedamp verifies independent sessions and distinct server IDs, but **never deletes** operator-supplied user accounts during cleanup.
+
+#### Mode B: Optional Dynamic Provisioning (`--identity-mode provision --confirm-provisioning`)
+In isolated labs with administrative access, Firedamp can automatically generate run-scoped test accounts with cryptographically secure passwords (`secrets` module) and ordinary user roles, verify target isolation, and safely delete the test personas:
+```bash
+export FIREDAMP_PROVISION_ADMIN_TOKEN="<admin-jwt-token>"
+firedamp scan --target openwebui --target-url https://your-lab-instance.example --identity-mode provision --confirm-provisioning
+```
+*Audit Journal & Recovery*: Dynamic provisioning writes an audit journal (mode `0600`, directory `0700`, no passwords or tokens). If a scan is interrupted before cleanup, recover and decommission orphaned test personas with:
+```bash
+firedamp cleanup-identities --run-id <RUN_ID>
+```
+*(Non-loopback live targets require `https://` unless `--allow-insecure-http` is explicitly passed for isolated labs).*
 
 ---
 
 ## 6. CLI Overview
 
-The `firedamp` CLI provides commands for scanning, target discovery, and version checking:
+The `firedamp` CLI provides commands for scanning, identity cleanup, target discovery, and version checking:
 
 | Command | Description |
 | :--- | :--- |
 | `firedamp scan [OPTIONS]` | Executes isolation scans, CVE regression probes, and authorization matrix replays. |
+| `firedamp cleanup-identities` | Recovers and deletes provisioned test personas from interrupted scans. |
 | `firedamp list-targets` | Lists supported and planned target adapters. |
 | `firedamp version` | Displays version and sensor status. |
 
@@ -186,6 +215,10 @@ The `firedamp` CLI provides commands for scanning, target discovery, and version
 - `-o, --output <str>`: Path to export audit report.
 - `-f, --format <str>`: Audit report format: `json`, `markdown`, or `sarif` (default: `json`).
 - `--fail-on-leak`: Exit code 1 if a canary leak is detected.
+- `--require-complete`: Exit code 1 if any probe is `INCONCLUSIVE`, `SKIPPED`, or zero probes executed.
+- `--allow-insecure-http`: Allow plain `http://` for non-loopback live targets (unsafe; isolated labs only).
+- `--identity-mode <str>`: Identity lifecycle mode: `existing` (default) or `provision`.
+- `--confirm-provisioning`: Explicitly authorize Firedamp to provision and delete test accounts on target.
 - `--dry-run`: Run simulated scan without network or Docker containers.
 - `--cpu-only`: Run Docker target container without GPU/Ollama dependencies.
 - `-s, --suite <str>`: Probing suite: `default`, `cve-regression`, `auth-matrix`, `lifecycle`, `write-poisoning`, `agent-memory`, `all` (default: `default`).
@@ -254,9 +287,10 @@ The repository provides an isolated differential lab harness in [`tests/integrat
 │   └── integration/     # CVE-2026-28788 integration lab and offline simulations
 ├── wiki/                # Technical guides and architecture documentation
 ├── cli.py               # Command-line interface entrypoint
+├── docs/audits/         # Reconciled audit index and archived historical reports
 ├── pyproject.toml       # PEP 621 package metadata & dependencies
-├── CVE_AUDIT.md         # Authoritative 21-CVE forensic catalog audit
-├── FINAL_AUDIT.md       # Repository audit findings and status register
+├── .env.example         # Live credential environment variable template
+├── CVE_AUDIT.md         # Historical 21-CVE forensic catalog audit (see docs/audits/README.md)
 └── README.md            # Project overview and reference manual
 ```
 

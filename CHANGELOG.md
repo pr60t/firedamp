@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Test Identity Lifecycle Architecture (`core/identity.py`, `cli.py`, `adapters/openwebui/user_mgmt.py`, `tests/test_identity_lifecycle.py`)**:
+  - Implemented default Mode A (`--identity-mode existing`) with pre-network validation, distinct server-side user ID enforcement, and operator account preservation (operator accounts are never deleted).
+  - Implemented optional Mode B (`--identity-mode provision --confirm-provisioning`) requiring explicit confirmation, administrative preflight verification, cryptographically secure random password generation via `secrets` module, run-scoped unique usernames, strictly unprivileged role assignment, and ordered teardown (Bob, then Alice) with post-deletion verification.
+  - Implemented atomic, permission-hardened audit journaling (`IdentityJournal`) with mode `0600` on files, mode `0700` on directories, and atomic replacement via temporary file swap. Strictly excludes passwords and authentication tokens from journal persistence and logging.
+  - Added `firedamp cleanup-identities --run-id <RUN_ID>` command for interrupted-run recovery and clean decommissioning of orphaned test accounts.
+- **Atomic Launcher Publication (`install.sh`)**: Replaced unsafe shell redirection (`cat > "$LAUNCHER"`) with independent staging and kernel-enforced `renameat2(AT_FDCWD, src, AT_FDCWD, dst, RENAME_NOREPLACE)` atomic publication. Added ancestor symlink, ownership, and permission validation, and safe partial-install reporting if application publication succeeds but launcher publication fails.
+- **Removed Hardcoded Live Credentials (`cli.py`, `adapters/openwebui/auth.py`)**: Replaced hardcoded `alice_owner` / `bob_attacker` live passwords with explicit environment configuration (`FIREDAMP_ALICE_PASSWORD`, `FIREDAMP_BOB_PASSWORD`, `.env.example`), pre-network validation, non-echoing/redacted error logging, and `_NoRedirectHandler` to prevent cross-origin Bearer token forwarding.
+- **HTTPS Enforcement (`core/target.py`)**: Required `https://` for non-loopback live targets unless `--allow-insecure-http` is explicitly supplied.
+
+### Fixed
+- **Fail-Closed Adapter Selection (`cli.py`)**: Removed broad exception fallback to `OpenWebUIAdapter` on unknown targets or adapter initialization failures.
+- **Explicit Probe Status Taxonomy (`core/engine.py`, `core/reporter.py`, `core/policy.py`, `probes/cves/__init__.py`)**: Added `ProbeStatus` (`CLEAN`, `COMPROMISED`, `INCONCLUSIVE`, `SKIPPED`), tracked executed/clean/compromised/inconclusive/skipped totals in summaries and SARIF/Markdown/JSON outputs, and added `--require-complete` and `require_complete_execution` policy thresholds.
+- **Installer Release Pinning (`install.sh`)**: Pinned remote clones to `v0.1.0` by default (overridable via `FIREDAMP_REF`) and refused dirty local Git checkouts.
+- **CI & Wiki Workflows (`.github/workflows/`)**: Added `.github/workflows/ci.yml` (Python 3.10–3.12 test, compile, shellcheck, and packaging matrix) and `.github/dependabot.yml`; converted `.github/workflows/audit.yml` into a non-SARIF-uploading simulation smoke test; updated `.github/workflows/sync-wiki.yml` to mirror deletions via `rsync --delete` and fail closed on clone/push errors.
+- **Audit & Documentation Reconciliation**: Archived `FINAL_AUDIT.md` and `FINAL_AUDIT_REMEDIATION.md` under `docs/audits/archive/`, added `docs/audits/README.md` with dated CVE validation status and reconciled finding register, and removed local `file://` links from `wiki/`.
+
 ## [0.1.0] - 2026-11-26
 
 ### Added

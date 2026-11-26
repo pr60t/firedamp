@@ -33,18 +33,20 @@ In modern multi-tenant AI platforms (like Open WebUI), proprietary documents oft
 
 | Resource | Description |
 | :--- | :--- |
-| **[CVE-2026-28788 Integration Lab](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/README.md)** | Step-by-step reproduction harness, Docker compose files, and scripts. |
-| **[Sanitized Evidence Bundles](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/evidence/)** | Historical and offline simulation test evidence runs with cryptographic manifests. |
-| **[CVE Forensic Catalog Audit (CVE_AUDIT.md)](file:///home/user/firedamp/CVE_AUDIT.md)** | Authoritative 21-vulnerability breakdown and historical misattribution audit. |
-| **[Repository Audit & Findings (FINAL_AUDIT.md)](file:///home/user/firedamp/FINAL_AUDIT.md)** | Comprehensive security findings, remediation logs, and resolver architecture. |
+| **[CVE-2026-28788 Integration Lab](https://github.com/pr60t/firedamp/blob/main/tests/integration/openwebui_cve_2026_28788/README.md)** | Step-by-step reproduction harness, Docker compose files, and scripts. |
+| **[Sanitized Evidence Bundles](https://github.com/pr60t/firedamp/tree/main/tests/integration/openwebui_cve_2026_28788/evidence)** | Historical and offline simulation test evidence runs with cryptographic manifests. |
+| **[Audit Index & Status Supplement](https://github.com/pr60t/firedamp/blob/main/docs/audits/README.md)** | Reconciled historical audit register and dated CVE live-validation status. |
+| **[CVE Forensic Catalog Audit (CVE_AUDIT.md)](https://github.com/pr60t/firedamp/blob/main/CVE_AUDIT.md)** | Historical 21-vulnerability breakdown and misattribution audit (2026-11-18). |
 
 ---
 
-### ⚡ Quick Install
-Install the Firedamp CLI with a single command:
+### ⚡ Quick Install (Release-Pinned)
+Download, inspect, and execute the release-pinned Linux installer (`v0.1.0`), or use the manual virtual environment setup in [[Quickstart]]:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pr60t/firedamp/v0.1.0/install.sh -o /tmp/firedamp-install.sh
+less /tmp/firedamp-install.sh
+bash /tmp/firedamp-install.sh
 ```
 
 ### 🧪 One-Liner Quick Test

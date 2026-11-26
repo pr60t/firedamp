@@ -22,7 +22,8 @@ class TestInstallScriptSafety(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp(prefix="firedamp-install-test-")
         self.home_dir = os.path.join(self.test_dir, "fake_home")
-        os.makedirs(self.home_dir, exist_ok=True)
+        os.makedirs(self.home_dir, mode=0o755, exist_ok=True)
+        os.chmod(self.home_dir, 0o755)
         self.install_dir = os.path.join(self.home_dir, ".firedamp")
         self.bin_dir = os.path.join(self.home_dir, ".local", "bin")
 
@@ -117,18 +118,37 @@ class TestInstallScriptSafety(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertNotIn("[+] Firedamp successfully installed", res.stdout)
 
-    def _create_mocked_installer(self, pause_code):
+    def _create_clean_local_repo(self, name="clean_repo"):
+        repo_dir = os.path.join(self.test_dir, name)
+        os.makedirs(os.path.join(repo_dir, "core"), exist_ok=True)
+        with open(os.path.join(repo_dir, "pyproject.toml"), "w") as f:
+            f.write('[project]\nname = "firedamp"\nversion = "0.1.0"\n')
+        with open(os.path.join(repo_dir, "cli.py"), "w") as f:
+            f.write('print("firedamp")\n')
+        with open(os.path.join(repo_dir, "core", "__init__.py"), "w") as f:
+            f.write("")
+        subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo_dir, check=True)
+        return repo_dir
+
+    def _create_mocked_installer(self, pause_code, pause_marker='# 10. Atomic / no-clobber publication to TARGET_INSTALL_DIR\n'):
         with open(INSTALL_SH, "r") as f:
             content = f.read()
 
-        pause_marker = '# 10. Atomic / no-clobber publication to TARGET_INSTALL_DIR\n'
-        instrumented = content.replace(pause_marker, pause_marker + pause_code)
+        self.assertIn(pause_marker, content)
+        instrumented = content.replace(pause_marker, pause_marker + pause_code, 1)
         # Mock network/pip operations and verification checks in unit-test sandbox
         mock_pip = (
             'echo "mock pip success" && '
             'mkdir -p "${VENV_DIR}/bin" && '
             'printf "#!/bin/sh\\necho firedamp 0.1.0\\n" > "${VENV_DIR}/bin/firedamp" && '
-            'chmod +x "${VENV_DIR}/bin/firedamp"'
+            'chmod +x "${VENV_DIR}/bin/firedamp" && '
+            'SITE_PKGS=$("${VENV_DIR}/bin/python" -c "import site; print(site.getsitepackages()[0])") && '
+            'mkdir -p "${SITE_PKGS}/firedamp-0.1.0.dist-info" && '
+            'printf "Metadata-Version: 2.1\\nName: firedamp\\nVersion: 0.1.0\\n" > "${SITE_PKGS}/firedamp-0.1.0.dist-info/METADATA"'
         )
         instrumented = instrumented.replace(
             '"${VENV_DIR}/bin/pip" install "${PIP_INSTALL_FLAGS[@]}"',
@@ -151,6 +171,7 @@ class TestInstallScriptSafety(unittest.TestCase):
     def _run_concurrent_collision_test(self, setup_collision_fn, verify_collision_fn):
         sync_file = os.path.join(self.test_dir, f"sync_{time.time_ns()}")
         resume_file = os.path.join(self.test_dir, f"resume_{time.time_ns()}")
+        clean_repo = self._create_clean_local_repo()
 
         pause_code = f"""
 touch "{sync_file}"
@@ -167,7 +188,7 @@ done
 
         proc = subprocess.Popen(
             ["bash", script_path],
-            cwd=str(REPO_ROOT),
+            cwd=clean_repo,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -270,7 +291,8 @@ done
         self._run_concurrent_collision_test(setup, verify)
 
     def test_successful_publication_when_destination_absent(self):
-        """Successful publication: destination is atomically created and contains expected structure."""
+        """Successful publication: both destinations are atomically created and contain expected structure."""
+        clean_repo = self._create_clean_local_repo()
         script_path = self._create_mocked_installer("")
 
         env = os.environ.copy()
@@ -280,24 +302,26 @@ done
 
         proc = subprocess.run(
             ["bash", script_path],
-            cwd=str(REPO_ROOT),
+            cwd=clean_repo,
             env=env,
             capture_output=True,
             text=True,
         )
-        self.assertEqual(proc.returncode, 0, f"Installer failed: {proc.stderr}")
+        self.assertEqual(proc.returncode, 0, f"Installer failed: stdout={proc.stdout}\nstderr={proc.stderr}")
         self.assertTrue(os.path.isdir(self.install_dir))
         self.assertTrue(os.path.isdir(os.path.join(self.install_dir, "repo")))
         self.assertTrue(os.path.isdir(os.path.join(self.install_dir, "venv")))
-        self.assertIn("Firedamp successfully installed", proc.stdout)
+        self.assertIn("Firedamp 0.1.0 successfully installed", proc.stdout)
 
-        # Check launcher created
+        # Check launcher created as regular executable file (not symlink)
         launcher = os.path.join(self.bin_dir, "firedamp")
         self.assertTrue(os.path.isfile(launcher))
+        self.assertFalse(os.path.islink(launcher))
         self.assertTrue(os.access(launcher, os.X_OK))
 
     def test_sigint_and_sigterm_cleanup(self):
         """Verify that SIGINT and SIGTERM immediately terminate the installer and clean up staging."""
+        clean_repo = self._create_clean_local_repo()
         for sig in [signal.SIGINT, signal.SIGTERM]:
             sync_file = os.path.join(self.test_dir, f"sync_sig_{sig}")
             pause_code = f"""
@@ -315,7 +339,7 @@ done
 
             proc = subprocess.Popen(
                 ["bash", script_path],
-                cwd=str(REPO_ROOT),
+                cwd=clean_repo,
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -363,6 +387,247 @@ done
 
         with open(sentinel_file, "rb") as f:
             self.assertEqual(hashlib.sha256(f.read()).hexdigest(), digest_before)
+
+    # --- Launcher Security & Partial Installation Tests (Section 2.4) ---
+
+    def test_existing_launcher_regular_file_refused_and_preserved(self):
+        """Existing launcher regular file with sentinel content is never overwritten or truncated."""
+        os.makedirs(self.bin_dir, exist_ok=True)
+        launcher = os.path.join(self.bin_dir, "firedamp")
+        sentinel = b"#!/bin/sh\n# USER_CUSTOM_LAUNCHER_SENTINEL\n"
+        with open(launcher, "wb") as f:
+            f.write(sentinel)
+        digest = hashlib.sha256(sentinel).hexdigest()
+
+        res = self._run_installer()
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Launcher destination already exists", res.stderr + res.stdout)
+        self.assertNotIn("successfully installed", res.stdout)
+        with open(launcher, "rb") as f:
+            self.assertEqual(hashlib.sha256(f.read()).hexdigest(), digest)
+
+    def test_existing_launcher_symlink_refused_and_target_preserved(self):
+        """Existing launcher symlink is never followed and its target file is preserved byte-for-byte."""
+        os.makedirs(self.bin_dir, exist_ok=True)
+        target_file = os.path.join(self.test_dir, "victim_target.txt")
+        sentinel = b"CRITICAL_USER_DATA_SYMLINK_TARGET_999"
+        with open(target_file, "wb") as f:
+            f.write(sentinel)
+        digest = hashlib.sha256(sentinel).hexdigest()
+
+        launcher = os.path.join(self.bin_dir, "firedamp")
+        os.symlink(target_file, launcher)
+
+        res = self._run_installer()
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Launcher path is a symlink", res.stderr + res.stdout)
+        self.assertTrue(os.path.islink(launcher))
+        with open(target_file, "rb") as f:
+            self.assertEqual(hashlib.sha256(f.read()).hexdigest(), digest)
+
+    def test_existing_launcher_directory_refused(self):
+        """Existing directory at launcher path is refused without modification."""
+        os.makedirs(self.bin_dir, exist_ok=True)
+        launcher = os.path.join(self.bin_dir, "firedamp")
+        os.makedirs(launcher, exist_ok=True)
+        with open(os.path.join(launcher, "keep.txt"), "w") as f:
+            f.write("KEEP")
+
+        res = self._run_installer()
+        self.assertNotEqual(res.returncode, 0)
+        self.assertTrue(os.path.isdir(launcher))
+        self.assertEqual(os.listdir(launcher), ["keep.txt"])
+
+    def test_launcher_parent_symlink_refused(self):
+        """Symlink at BIN_DIR or parent directory of BIN_DIR is refused."""
+        real_bin = os.path.join(self.test_dir, "real_bin")
+        os.makedirs(real_bin, exist_ok=True)
+        symlink_bin = os.path.join(self.home_dir, "symlink_bin")
+        os.symlink(real_bin, symlink_bin)
+
+        res = self._run_installer(env_overrides={"FIREDAMP_BIN_DIR": symlink_bin})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("symlink", (res.stderr + res.stdout).lower())
+        self.assertEqual(os.listdir(real_bin), [])
+
+    def test_unsafe_launcher_directory_permissions_refused(self):
+        """World-writable or read-only BIN_DIR is refused before installation."""
+        world_writable = os.path.join(self.test_dir, "ww_bin")
+        os.makedirs(world_writable, exist_ok=True)
+        os.chmod(world_writable, 0o777)
+        try:
+            res = self._run_installer(env_overrides={"FIREDAMP_BIN_DIR": world_writable})
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("world-writable", (res.stderr + res.stdout).lower())
+        finally:
+            os.chmod(world_writable, 0o755)
+
+        readonly_bin = os.path.join(self.test_dir, "ro_bin")
+        os.makedirs(readonly_bin, exist_ok=True)
+        os.chmod(readonly_bin, 0o555)
+        try:
+            res = self._run_installer(env_overrides={"FIREDAMP_BIN_DIR": readonly_bin})
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("not writable", (res.stderr + res.stdout).lower())
+        finally:
+            os.chmod(readonly_bin, 0o755)
+
+    def _run_concurrent_launcher_collision_test(self, setup_launcher_fn, verify_launcher_fn):
+        sync_file = os.path.join(self.test_dir, f"sync_launcher_{time.time_ns()}")
+        resume_file = os.path.join(self.test_dir, f"resume_launcher_{time.time_ns()}")
+        clean_repo = self._create_clean_local_repo()
+
+        pause_code = f"""
+touch "{sync_file}"
+while [ ! -f "{resume_file}" ]; do
+    sleep 0.02
+done
+"""
+        launcher_marker = 'echo -e "${CYAN}[~] Publishing launcher atomically...${NC}"\n'
+        script_path = self._create_mocked_installer(pause_code, pause_marker=launcher_marker)
+
+        env = os.environ.copy()
+        env["HOME"] = self.home_dir
+        env["FIREDAMP_INSTALL_DIR"] = self.install_dir
+        env["FIREDAMP_BIN_DIR"] = self.bin_dir
+
+        proc = subprocess.Popen(
+            ["bash", script_path],
+            cwd=clean_repo,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        start_time = time.time()
+        while not os.path.exists(sync_file):
+            time.sleep(0.02)
+            if time.time() - start_time > 15:
+                proc.kill()
+                out, err = proc.communicate()
+                self.fail(f"Timeout waiting for launcher sync hook. stdout={out}, stderr={err}")
+
+        launcher = os.path.join(self.bin_dir, "firedamp")
+        self.assertFalse(os.path.lexists(launcher))
+
+        # Concurrently create collision at LAUNCHER
+        setup_launcher_fn(launcher)
+
+        with open(resume_file, "w") as f:
+            f.write("go")
+
+        stdout, stderr = proc.communicate(timeout=15)
+        self.assertNotEqual(proc.returncode, 0)
+        # Verify partial installation is preserved and NOT deleted, and recovery instructions are shown
+        self.assertTrue(os.path.isdir(self.install_dir), "Partial installation should NOT be deleted on launcher failure")
+        self.assertIn("PARTIAL INSTALL", stderr)
+        self.assertIn("Recovery options", stderr)
+        self.assertNotIn("successfully installed", stdout)
+
+        # Verify launcher collision object was preserved untouched
+        verify_launcher_fn(launcher)
+
+        # Verify launcher staging file was cleaned up
+        leaked = [f for f in os.listdir(self.bin_dir) if "firedamp-launcher-staging" in f]
+        self.assertEqual(leaked, [], f"Leaked launcher staging files: {leaked}")
+
+    def test_concurrent_launcher_collision_regular_file(self):
+        """Concurrent launcher collision with regular file preserves target and leaves partial install."""
+        sentinel = b"CONCURRENT_LAUNCHER_FILE_DATA_123"
+        digest = hashlib.sha256(sentinel).hexdigest()
+
+        def setup(launcher):
+            with open(launcher, "wb") as f:
+                f.write(sentinel)
+
+        def verify(launcher):
+            self.assertFalse(os.path.islink(launcher))
+            with open(launcher, "rb") as f:
+                self.assertEqual(hashlib.sha256(f.read()).hexdigest(), digest)
+
+        self._run_concurrent_launcher_collision_test(setup, verify)
+
+    def test_concurrent_launcher_collision_symlink(self):
+        """Concurrent launcher collision with symlink never follows link and preserves target."""
+        target = os.path.join(self.test_dir, "concurrent_victim.txt")
+        sentinel = b"CONCURRENT_SYMLINK_VICTIM_456"
+        with open(target, "wb") as f:
+            f.write(sentinel)
+        digest = hashlib.sha256(sentinel).hexdigest()
+
+        def setup(launcher):
+            os.symlink(target, launcher)
+
+        def verify(launcher):
+            self.assertTrue(os.path.islink(launcher))
+            with open(target, "rb") as f:
+                self.assertEqual(hashlib.sha256(f.read()).hexdigest(), digest)
+
+        self._run_concurrent_launcher_collision_test(setup, verify)
+
+    def test_interruption_while_creating_launcher_cleans_staging(self):
+        """SIGINT during launcher staging/publication terminates safely and cleans up staging file."""
+        sync_file = os.path.join(self.test_dir, f"sync_launcher_sig_{time.time_ns()}")
+        clean_repo = self._create_clean_local_repo()
+        pause_code = f"""
+touch "{sync_file}"
+while true; do
+    sleep 0.02
+done
+"""
+        launcher_marker = 'echo -e "${CYAN}[~] Publishing launcher atomically...${NC}"\n'
+        script_path = self._create_mocked_installer(pause_code, pause_marker=launcher_marker)
+
+        env = os.environ.copy()
+        env["HOME"] = self.home_dir
+        env["FIREDAMP_INSTALL_DIR"] = self.install_dir
+        env["FIREDAMP_BIN_DIR"] = self.bin_dir
+
+        proc = subprocess.Popen(
+            ["bash", script_path],
+            cwd=clean_repo,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        start_time = time.time()
+        while not os.path.exists(sync_file):
+            time.sleep(0.02)
+            if time.time() - start_time > 15:
+                proc.kill()
+                proc.communicate()
+                self.fail("Timeout waiting for launcher signal hook.")
+
+        staging_files_active = [f for f in os.listdir(self.bin_dir) if "firedamp-launcher-staging" in f]
+        self.assertEqual(len(staging_files_active), 1)
+
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=10)
+        self.assertNotEqual(proc.returncode, 0)
+
+        staging_files_after = [f for f in os.listdir(self.bin_dir) if "firedamp-launcher-staging" in f]
+        self.assertEqual(staging_files_after, [], f"Leaked launcher staging files on SIGINT: {staging_files_after}")
+
+    def test_dirty_local_checkout_refused(self):
+        """Running installer inside a dirty local git checkout is refused with clear explanation."""
+        dirty_repo = self._create_clean_local_repo("dirty_repo")
+        with open(os.path.join(dirty_repo, "untracked_secret.txt"), "w") as f:
+            f.write("DIRTY")
+
+        res = self._run_installer(cwd=dirty_repo)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("dirty", (res.stderr + res.stdout).lower())
+
+    def test_remote_installer_defaults_to_pinned_v0_1_0_ref(self):
+        """Remote clone defaults to v0.1.0 and honors FIREDAMP_REF override."""
+        with open(INSTALL_SH, "r") as f:
+            content = f.read()
+        self.assertIn('DEFAULT_FIREDAMP_REF="v0.1.0"', content)
+        self.assertIn('FIREDAMP_REF="${FIREDAMP_REF:-$DEFAULT_FIREDAMP_REF}"', content)
+        self.assertIn('--branch "$FIREDAMP_REF"', content)
 
 
 if __name__ == "__main__":

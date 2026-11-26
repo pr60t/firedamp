@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from adapters.base import UserSession
+from core.engine import sanitize_sensitive_text
 
 logger = logging.getLogger("firedamp.adapters.openwebui.auth")
 
@@ -24,6 +25,11 @@ class OpenWebUIAuthMixin:
         role: str = "user",
     ) -> UserSession:
         """Sign up or sign in a test persona. Returns session with Bearer token."""
+        if not isinstance(username, str) or not username.strip():
+            raise ValueError("Authentication requires a non-empty username.")
+        if not isinstance(password, str) or not password.strip():
+            raise ValueError(f"Authentication for '{username}' requires a non-empty password.")
+
         base = base_url.rstrip("/")
         email = f"{username.lower()}@firedamp-audit.internal"
 
@@ -33,7 +39,7 @@ class OpenWebUIAuthMixin:
             method="POST",
             data={"name": username.capitalize(), "email": email, "password": password},
         )
-        token = res.get("token")
+        token = res.get("token") if isinstance(res, dict) else None
 
         # Fall back to signin
         if not token:
@@ -42,10 +48,11 @@ class OpenWebUIAuthMixin:
                 method="POST",
                 data={"email": email, "password": password},
             )
-            token = res.get("token")
+            token = res.get("token") if isinstance(res, dict) else None
 
         if not token:
-            logger.warning(f"Auth for {username} returned no token: {res}")
+            err_code = res.get("code") if isinstance(res, dict) else None
+            logger.warning(f"Auth for {username} returned no token (status={err_code})")
 
         auth_headers = {"Authorization": f"Bearer {token}"} if token else {}
 
@@ -101,7 +108,7 @@ class OpenWebUIAuthMixin:
                 return raw_id.strip()
             return None
         except Exception as exc:
-            logger.debug(f"Failed to get authenticated user ID: {exc}")
+            logger.debug(f"Failed to get authenticated user ID: {sanitize_sensitive_text(exc)}")
             return None
 
     def validate_session(self, base_url: str, session: UserSession) -> bool:
@@ -133,6 +140,6 @@ class OpenWebUIAuthMixin:
                     return True
             return False
         except Exception as exc:
-            logger.debug(f"Session validation failed: {exc}")
+            logger.debug(f"Session validation failed: {sanitize_sensitive_text(exc)}")
             return False
 
