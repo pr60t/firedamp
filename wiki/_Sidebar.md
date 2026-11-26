@@ -12,10 +12,10 @@
 ---
 
 ### Evidence & Audits
-- [Integration Lab](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/README.md)
-- [Evidence Bundles](file:///home/user/firedamp/tests/integration/openwebui_cve_2026_28788/evidence/)
-- [CVE Forensic Audit](file:///home/user/firedamp/CVE_AUDIT.md)
-- [Repository Audit](file:///home/user/firedamp/FINAL_AUDIT.md)
+- [Integration Lab](https://github.com/pr60t/firedamp/blob/main/tests/integration/openwebui_cve_2026_28788/README.md)
+- [Evidence Bundles](https://github.com/pr60t/firedamp/tree/main/tests/integration/openwebui_cve_2026_28788/evidence)
+- [Audit Index & Status](https://github.com/pr60t/firedamp/blob/main/docs/audits/README.md)
+- [CVE Forensic Audit](https://github.com/pr60t/firedamp/blob/main/CVE_AUDIT.md)
 
 ---
 

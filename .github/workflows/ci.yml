@@ -1,0 +1,79 @@
+name: Firedamp CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-package:
+    name: Test & Package (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.10", "3.11", "3.12" ]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Runtime & Build Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Compile Python Modules
+        run: |
+          python -m compileall -q core adapters probes tests cli.py
+
+      - name: Validate Installer Shell Syntax & Lint
+        run: |
+          bash -n install.sh
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck -S warning install.sh
+          fi
+
+      - name: Run Full Offline Unit & Regression Test Suite
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Build Source Distribution & Wheel
+        run: |
+          mkdir -p /tmp/ci-dist
+          python -c "import setuptools.build_meta as bm; bm.build_sdist('/tmp/ci-dist'); bm.build_wheel('/tmp/ci-dist')"
+
+      - name: Verify Extracted Source Distribution Tests
+        run: |
+          mkdir -p /tmp/ci-sdist-extract
+          tar -xzf /tmp/ci-dist/firedamp-*.tar.gz -C /tmp/ci-sdist-extract
+          cd /tmp/ci-sdist-extract/firedamp-*
+          python -m unittest tests.test_installer_safety -v
+          python -m unittest discover -s tests
+
+      - name: Verify Clean Wheel Installation & CLI Smoke Tests
+        run: |
+          python -m venv /tmp/ci-wheel-venv
+          /tmp/ci-wheel-venv/bin/pip install --upgrade pip
+          /tmp/ci-wheel-venv/bin/pip install /tmp/ci-dist/firedamp-*.whl
+          cd /tmp
+          /tmp/ci-wheel-venv/bin/firedamp --help
+          /tmp/ci-wheel-venv/bin/firedamp version
+          /tmp/ci-wheel-venv/bin/firedamp list-targets
+          /tmp/ci-wheel-venv/bin/firedamp scan --dry-run

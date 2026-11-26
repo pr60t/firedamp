@@ -321,6 +321,43 @@ class TargetAdapter(ABC):
         """
         return False
 
+    def check_admin_permissions(self, base_url: str, admin_token: str) -> bool:
+        """
+        Verify whether admin_token has administrative permissions on target platform.
+        Default implementation returns False.
+        """
+        return False
+
+    def provision_user(
+        self,
+        base_url: str,
+        admin_token: str,
+        username: str,
+        password: str,
+        role: str = "user",
+    ) -> Dict[str, Any]:
+        """
+        Provisions a new user account with ordinary user role.
+        Returns dict containing at least {"user_id": str, "username": str, "email": str, "role": str}.
+        Default implementation raises NotImplementedError.
+        """
+        raise NotImplementedError("User provisioning is not implemented for this adapter.")
+
+    def delete_user(self, base_url: str, admin_token: str, user_id: str) -> bool:
+        """
+        Deletes a provisioned user account by exact server-side ID using admin credentials.
+        Default implementation returns False.
+        """
+        return False
+
+    def verify_user_deleted(self, base_url: str, admin_token: str, user_id: str) -> bool:
+        """
+        Verifies that a user account has been completely deleted server-side.
+        Returns True if user no longer exists, False otherwise.
+        Default implementation returns False.
+        """
+        return False
+
 
 # Global adapter registry
 ADAPTER_REGISTRY: Dict[str, Type[TargetAdapter]] = {}

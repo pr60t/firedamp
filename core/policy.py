@@ -34,6 +34,8 @@ class PolicyThresholds:
     allowed_status_codes: List[int] = field(default_factory=lambda: [401, 403, 404])
     ignored_channels: List[str] = field(default_factory=list)
     enforce_clean_baseline: bool = True
+    fail_on_inconclusive: bool = False
+    require_complete_execution: bool = False
 
 
 @dataclass
@@ -96,6 +98,8 @@ class FiredampPolicy:
             allowed_status_codes=allowed_codes,
             ignored_channels=thresholds_data.get("ignored_channels", []) or [],
             enforce_clean_baseline=bool(thresholds_data.get("enforce_clean_baseline", True)),
+            fail_on_inconclusive=bool(thresholds_data.get("fail_on_inconclusive", False)),
+            require_complete_execution=bool(thresholds_data.get("require_complete_execution", False)),
         )
 
         return cls(
@@ -125,6 +129,10 @@ class FiredampPolicy:
             )
 
         # 2. Per-Probe Analysis
+        clean_count = 0
+        compromised_count = 0
+        inconclusive_count = 0
+        skipped_count = 0
         for probe in probe_results:
             # Check exemptions
             if probe.probe_id in self.exemptions or probe.probe_category in self.exemptions:
@@ -133,6 +141,23 @@ class FiredampPolicy:
             # Check ignored channels
             if probe.channel in self.thresholds.ignored_channels:
                 continue
+
+            if probe.is_skipped:
+                skipped_count += 1
+                continue
+
+            if probe.is_inconclusive:
+                inconclusive_count += 1
+                if self.thresholds.fail_on_inconclusive:
+                    violations.append(
+                        f"Inconclusive probe result in '{probe.probe_category}': {probe.target_response}"
+                    )
+                continue
+
+            if probe.is_leak:
+                compromised_count += 1
+            else:
+                clean_count += 1
 
             # Direct generation leak
             if probe.severity == LeakSeverity.DIRECT_LEAK and self.thresholds.fail_on_direct_leak:
@@ -160,6 +185,14 @@ class FiredampPolicy:
                     f"Historical CVE regression breach: {probe.probe_category}"
                 )
 
+        executed_count = clean_count + compromised_count + inconclusive_count
+        if self.thresholds.require_complete_execution and (
+            inconclusive_count > 0 or skipped_count > 0 or executed_count == 0
+        ):
+            violations.append(
+                f"Incomplete scan coverage: executed={executed_count}, inconclusive={inconclusive_count}, skipped={skipped_count}"
+            )
+
         # 3. Authorization Matrix Analysis (if present)
         if matrix_report and self.thresholds.fail_on_auth_bypass:
             for cell in getattr(matrix_report, "grid", []):
@@ -177,6 +210,11 @@ class FiredampPolicy:
                 "firedamp_index": summary.firedamp_index,
                 "max_allowed_index": self.thresholds.max_firedamp_index,
                 "violation_count": len(violations),
+                "clean_probes": clean_count,
+                "compromised_probes": compromised_count,
+                "inconclusive_probes": inconclusive_count,
+                "skipped_probes": skipped_count,
+                "executed_probes": executed_count,
             },
         )
 

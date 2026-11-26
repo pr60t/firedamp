@@ -5,12 +5,14 @@ Handles spinning up ephemeral Docker containers or attaching to remote instances
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import socket
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
+from urllib.parse import urlparse
 import urllib.request
 import urllib.error
 
@@ -139,11 +141,41 @@ class BaseTargetManager(ABC):
         pass
 
 
+def is_loopback_host(hostname: Optional[str]) -> bool:
+    """Returns True if hostname resolves strictly to a loopback address or localhost."""
+    if not hostname:
+        return False
+    clean = hostname.strip().lower().rstrip(".")
+    if clean in ("localhost", "localhost.localdomain"):
+        return True
+    try:
+        addr = ipaddress.ip_address(clean)
+        return addr.is_loopback
+    except ValueError:
+        return False
+
+
+def validate_target_url(target_url: str, allow_insecure_http: bool = False) -> str:
+    """Validate target URL scheme and enforce HTTPS for non-loopback live targets."""
+    if not isinstance(target_url, str) or not target_url.strip():
+        raise ValueError("Target URL must be a non-empty string.")
+    parsed = urlparse(target_url.strip())
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
+        raise ValueError(f"Invalid target URL '{target_url}': expected http:// or https:// with a valid host.")
+    if scheme == "http" and not is_loopback_host(parsed.hostname) and not allow_insecure_http:
+        raise ValueError(
+            f"Refusing plain HTTP for non-loopback live target '{target_url}'. "
+            "Use HTTPS or pass --allow-insecure-http explicitly if operating in an isolated lab."
+        )
+    return target_url.strip().rstrip("/")
+
+
 class RemoteTargetManager(BaseTargetManager):
     """Connects to an existing remote or pre-provisioned RAG deployment."""
 
-    def __init__(self, target_url: str, target_name: str = "remote"):
-        self.target_url = target_url.rstrip("/")
+    def __init__(self, target_url: str, target_name: str = "remote", allow_insecure_http: bool = False):
+        self.target_url = validate_target_url(target_url, allow_insecure_http=allow_insecure_http)
         self.target_name = target_name
 
     def start(self, version: str = "latest", timeout: int = 30) -> TargetEnvironment:

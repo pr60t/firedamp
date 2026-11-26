@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from rich.console import Console
 from rich.table import Table
 
-from core.engine import ProbingEngine, CanaryToken, DecoyDocument
+from core.engine import ProbingEngine, CanaryToken, DecoyDocument, sanitize_sensitive_text
 from core.target import RemoteTargetManager, DockerTargetManager, TargetEnvironment
 from core.reporter import FiredampReporter, AuditSummary
 from adapters import get_adapter
@@ -28,6 +28,51 @@ from adapters.base import TargetAdapter, UserSession
 
 console = Console()
 reporter = FiredampReporter(console=console)
+
+
+def resolve_live_credentials() -> Tuple[str, str, str, str]:
+    """Resolve and validate live scan persona credentials from environment variables.
+
+    Usernames have documented non-secret defaults; passwords must be explicitly
+    supplied via FIREDAMP_ALICE_PASSWORD and FIREDAMP_BOB_PASSWORD and are never
+    hardcoded in source.
+    """
+    alice_user = os.environ.get("FIREDAMP_ALICE_USERNAME", "alice_owner").strip()
+    alice_pass = os.environ.get("FIREDAMP_ALICE_PASSWORD", "")
+    bob_user = os.environ.get("FIREDAMP_BOB_USERNAME", "bob_attacker").strip()
+    bob_pass = os.environ.get("FIREDAMP_BOB_PASSWORD", "")
+
+    if not alice_user:
+        raise ValueError("FIREDAMP_ALICE_USERNAME must not be empty.")
+    if not bob_user:
+        raise ValueError("FIREDAMP_BOB_USERNAME must not be empty.")
+    if alice_user.lower() == bob_user.lower():
+        raise ValueError("FIREDAMP_ALICE_USERNAME and FIREDAMP_BOB_USERNAME must be distinct identities.")
+    if not alice_pass or not alice_pass.strip():
+        raise ValueError(
+            "Missing FIREDAMP_ALICE_PASSWORD for live scan. "
+            "Set FIREDAMP_ALICE_PASSWORD and FIREDAMP_BOB_PASSWORD (see .env.example), or use --dry-run."
+        )
+    if not bob_pass or not bob_pass.strip():
+        raise ValueError(
+            "Missing FIREDAMP_BOB_PASSWORD for live scan. "
+            "Set FIREDAMP_ALICE_PASSWORD and FIREDAMP_BOB_PASSWORD (see .env.example), or use --dry-run."
+        )
+    return alice_user, alice_pass, bob_user, bob_pass
+
+
+def resolve_admin_credentials() -> str:
+    """Resolve administrative token for user provisioning from environment variables.
+
+    Reads FIREDAMP_PROVISION_ADMIN_TOKEN or FIREDAMP_ADMIN_TOKEN.
+    """
+    token = os.environ.get("FIREDAMP_PROVISION_ADMIN_TOKEN") or os.environ.get("FIREDAMP_ADMIN_TOKEN")
+    if not token or not token.strip():
+        raise ValueError(
+            "Missing FIREDAMP_PROVISION_ADMIN_TOKEN for provisioning mode. "
+            "Set FIREDAMP_PROVISION_ADMIN_TOKEN (see .env.example), or use --identity-mode existing."
+        )
+    return token.strip()
 
 
 def _register_newly_seeded_disposables(
@@ -197,6 +242,31 @@ class SimulatedCLIAdapter(TargetAdapter):
     def delete_file(self, base_url: str, session: UserSession, file_id: str) -> bool:
         return True
 
+    def check_admin_permissions(self, base_url: str, admin_token: str) -> bool:
+        return bool(admin_token and admin_token.strip())
+
+    def provision_user(
+        self,
+        base_url: str,
+        admin_token: str,
+        username: str,
+        password: str,
+        role: str = "user",
+    ) -> Dict[str, Any]:
+        user_id = f"sim-{username}-id"
+        return {
+            "user_id": user_id,
+            "username": username,
+            "email": f"{username}@firedamp-audit.internal",
+            "role": role,
+        }
+
+    def delete_user(self, base_url: str, admin_token: str, user_id: str) -> bool:
+        return True
+
+    def verify_user_deleted(self, base_url: str, admin_token: str, user_id: str) -> bool:
+        return True
+
     def ingest_document(self, base_url: str, session: UserSession, document: DecoyDocument) -> str:
         return "sim-doc-id-1"
 
@@ -316,9 +386,24 @@ def run_scan_flow(
     policy: Optional[str] = None,
     vector_db: str = "chroma",
     multitenancy: str = "shared",
+    require_complete: bool = False,
+    allow_insecure_http: bool = False,
+    identity_mode: str = "existing",
+    confirm_provisioning: bool = False,
 ) -> int:
     """Execute atmospheric safety testing & cross-tenant leak detection across RAG shafts."""
     reporter.print_banner()
+
+    if identity_mode not in ("existing", "provision"):
+        reporter.log_alert(f"Invalid identity mode '{identity_mode}'. Must be 'existing' or 'provision'.")
+        return 1
+
+    if identity_mode == "provision" and not confirm_provisioning:
+        reporter.log_alert(
+            "Provisioning mode requested without confirmation. "
+            "You must supply --confirm-provisioning to allow Firedamp to provision and delete test accounts."
+        )
+        return 1
 
     from core.target import TargetConfigProfile
     config_profile = TargetConfigProfile.from_args(
@@ -326,6 +411,36 @@ def run_scan_flow(
         multitenancy=multitenancy,
     )
     reporter.render_config_summary(config_profile)
+
+    alice_username = "alice_owner"
+    alice_password = ""
+    bob_username = "bob_attacker"
+    bob_password = ""
+    admin_token = ""
+
+    if dry_run:
+        adapter = SimulatedCLIAdapter()
+        if identity_mode == "provision":
+            admin_token = "simulated-admin-token"
+    else:
+        try:
+            adapter = get_adapter(target)
+        except Exception as exc:
+            reporter.log_alert(f"Adapter selection failed for target '{target}': {sanitize_sensitive_text(exc)}")
+            return 1
+
+        if identity_mode == "provision":
+            try:
+                admin_token = resolve_admin_credentials()
+            except ValueError as exc:
+                reporter.log_alert(sanitize_sensitive_text(exc))
+                return 1
+        else:
+            try:
+                alice_username, alice_password, bob_username, bob_password = resolve_live_credentials()
+            except ValueError as exc:
+                reporter.log_alert(sanitize_sensitive_text(exc))
+                return 1
 
     # Step 1: Target Airway & Shaft Descent
     if dry_run:
@@ -339,12 +454,18 @@ def run_scan_flow(
         reporter.log_success(f"Simulation airway calibrated at [bold]{env.base_url}[/bold]")
     elif target_url:
         with console.status(f"[bold cyan]Connecting to active airway at [bold]{target_url}[/bold]...", spinner="dots"):
-            manager = RemoteTargetManager(target_url=target_url, target_name=target)
             try:
+                manager = RemoteTargetManager(
+                    target_url=target_url,
+                    target_name=target,
+                    allow_insecure_http=allow_insecure_http,
+                )
                 env = manager.start(timeout=15)
                 env.profile = config_profile
             except Exception as e:
-                reporter.log_alert(f"Failed to access target airway {target_url}: {e}")
+                reporter.log_alert(
+                    f"Failed to access target airway {target_url}: {sanitize_sensitive_text(e, [alice_password, bob_password, admin_token])}"
+                )
                 return 1
         reporter.log_success(f"Airway connected: Target verified at [bold]{env.base_url}[/bold]")
     else:
@@ -357,57 +478,73 @@ def run_scan_flow(
                 env = manager.start(version=version, timeout=45, cpu_only=cpu_only)
                 env.profile = config_profile
             except Exception as e:
-                reporter.log_active(f"Docker provisioning note: {e}")
-                reporter.log_active("Falling back to local atmospheric simulation...")
-                env = TargetEnvironment(
-                    name=target,
-                    base_url="http://localhost:8080",
-                    managed_by_docker=False,
-                    profile=config_profile,
+                reporter.log_alert(
+                    f"Docker target provisioning failed for '{target}:{version}': {sanitize_sensitive_text(e, [alice_password, bob_password, admin_token])}"
                 )
+                return 1
         reporter.log_success(f"Target airway online at [bold]{env.base_url}[/bold]")
 
-    # Step 2: Canary Cage Seeding (Alice)
+    # Step 2: Persona Authorization and Canary Cage Seeding
     import uuid
     scan_run_id = f"scan-{uuid.uuid4()}"
     engine = ProbingEngine(run_id=scan_run_id)
     decoys = engine.generate_decoys(count=canaries, owner="Alice")
     planted_tokens = [c for d in decoys for c in d.canaries]
 
-    with console.status(
-        f"[bold cyan]Synthesizing {len(planted_tokens)} verifiable canaries across {len(decoys)} decoy records...",
-        spinner="dots"
-    ) as status:
-        if dry_run:
-            adapter = SimulatedCLIAdapter()
-        else:
-            try:
-                adapter = get_adapter(target)
-            except Exception:
-                from adapters.openwebui import OpenWebUIAdapter
-                adapter = OpenWebUIAdapter()
+    from core.identity import IdentityManager
+    identity_mgr = IdentityManager()
+    provisioned_records = []
 
-        if not dry_run:
-            status.update("[bold cyan]Authorizing Alice session & seeding canary cages in private tenant scope...")
-            alice_session = adapter.authenticate_user(
-                env.base_url,
-                username="alice_owner",
-                password="AegisPassword!123",
-                role="owner"
-            )
-            alice_session.metadata["run_id"] = scan_run_id
-            alice_session.metadata.setdefault("disposable_file_ids", [])
-            alice_session.metadata["ordinary_file_ids"] = list(alice_session.metadata.get("file_ids", []))
-            for doc in decoys:
-                before_file_ids = list(alice_session.metadata.get("file_ids", []))
-                adapter.ingest_document(env.base_url, alice_session, doc)
-                _register_newly_seeded_disposables(
+    if identity_mode == "provision":
+        with console.status(
+            f"[bold cyan]Provisioning run-scoped test personas for scan [bold]{scan_run_id}[/bold]...",
+            spinner="dots"
+        ):
+            try:
+                alice_session, bob_session, provisioned_records = identity_mgr.provision_identities(
                     adapter=adapter,
                     base_url=env.base_url,
-                    session=alice_session,
-                    previous_file_ids=before_file_ids,
+                    admin_token=admin_token,
                     run_id=scan_run_id,
+                    dry_run=dry_run,
                 )
+            except Exception as exc:
+                reporter.log_alert(f"Identity provisioning failed: {sanitize_sensitive_text(exc, [admin_token])}")
+                return 1
+        reporter.log_success(
+            f"Provisioned isolated test personas: Alice ({alice_session.username}) & Bob ({bob_session.username})."
+        )
+    else:
+        if not dry_run:
+            with console.status("[bold cyan]Authorizing operator test personas...", spinner="dots"):
+                try:
+                    alice_session = adapter.authenticate_user(
+                        env.base_url,
+                        username=alice_username,
+                        password=alice_password,
+                        role="owner",
+                    )
+                    bob_session = adapter.authenticate_user(
+                        env.base_url,
+                        username=bob_username,
+                        password=bob_password,
+                        role="attacker",
+                    )
+                except Exception as exc:
+                    reporter.log_alert(
+                        f"Authentication failed: {sanitize_sensitive_text(exc, [alice_password, bob_password])}"
+                    )
+                    return 1
+
+                valid, val_err = identity_mgr.validate_existing_identities(
+                    adapter=adapter,
+                    base_url=env.base_url,
+                    alice=alice_session,
+                    bob=bob_session,
+                )
+                if not valid:
+                    reporter.log_alert(f"Identity validation failed: {val_err}")
+                    return 1
         else:
             alice_session = UserSession(
                 username="alice_owner",
@@ -420,6 +557,42 @@ def run_scan_flow(
                     "knowledge_ids": ["sim-kb-uuid-1"],
                 },
             )
+            bob_session = UserSession(
+                username="bob_attacker",
+                role="attacker",
+                token="simulated-bob-token",
+                metadata={
+                    "run_id": scan_run_id,
+                    "user_id": "sim-bob-user-id",
+                    "file_ids": [],
+                    "knowledge_ids": [],
+                },
+            )
+
+    # Attach run-scoped metadata tracking
+    for s in (alice_session, bob_session):
+        if not isinstance(s.metadata, dict):
+            s.metadata = {}
+        s.metadata["run_id"] = scan_run_id
+        s.metadata.setdefault("disposable_file_ids", [])
+        s.metadata["ordinary_file_ids"] = list(s.metadata.get("file_ids", []))
+
+    with console.status(
+        f"[bold cyan]Synthesizing {len(planted_tokens)} verifiable canaries across {len(decoys)} decoy records...",
+        spinner="dots"
+    ) as status:
+        if not dry_run:
+            status.update("[bold cyan]Seeding canary cages in Alice's private tenant scope...")
+            for doc in decoys:
+                before_file_ids = list(alice_session.metadata.get("file_ids", []))
+                adapter.ingest_document(env.base_url, alice_session, doc)
+                _register_newly_seeded_disposables(
+                    adapter=adapter,
+                    base_url=env.base_url,
+                    session=alice_session,
+                    previous_file_ids=before_file_ids,
+                    run_id=scan_run_id,
+                )
 
     reporter.log_success(
         f"Seeded {len(planted_tokens)} canaries across {len(decoys)} documents in Alice's private shaft."
@@ -450,32 +623,6 @@ def run_scan_flow(
 
     # Step 3: Adversarial Atmospheric Probing (Bob)
     reporter.log_active("Authorizing Bob (unprivileged querier) for cross-tenant atmospheric sampling...")
-    if not dry_run:
-        bob_session = adapter.authenticate_user(
-            env.base_url,
-            username="bob_attacker",
-            password="BobPassword!456",
-            role="attacker"
-        )
-        if not isinstance(bob_session.metadata, dict):
-            bob_session.metadata = {}
-        bob_session.metadata["run_id"] = scan_run_id
-        bob_session.metadata.setdefault("disposable_file_ids", [])
-        bob_session.metadata["ordinary_file_ids"] = list(bob_session.metadata.get("file_ids", []))
-    else:
-        bob_session = UserSession(
-            username="bob_attacker",
-            role="attacker",
-            token="simulated-bob-token",
-            metadata={
-                "run_id": scan_run_id,
-                "user_id": "sim-bob-user-id",
-                "file_ids": [],
-                "ordinary_file_ids": [],
-                "disposable_file_ids": [],
-                "knowledge_ids": [],
-            },
-        )
 
     probe_results = []
 
@@ -523,6 +670,7 @@ def run_scan_flow(
                 engine=engine,
                 dry_run=dry_run,
                 preconditions=config_profile.active_preconditions,
+                include_skipped=True,
             )
             for res in cve_results:
                 probe_results.append(res)
@@ -530,12 +678,16 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"CVE Breach detected ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_skipped:
+                    reporter.log_active(
+                        f"Skipped CVE probe: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 elif res.is_inconclusive:
                     reporter.log_active(
                         f"Inconclusive CVE probe: [dim]{res.probe_category}[/dim] ({res.target_response})"
                     )
                 else:
-                    reporter.log_success(f"Passed CVE probe: [dim]{res.probe_category}[/dim]")
+                    reporter.log_success(f"Clean CVE probe: [dim]{res.probe_category}[/dim]")
 
     # 3c. Authorization Matrix Suite (RAG Autorize)
     matrix_report = None
@@ -585,12 +737,16 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"Lifecycle breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_skipped:
+                    reporter.log_active(
+                        f"Skipped scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 elif res.is_inconclusive:
                     reporter.log_active(
                         f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
                     )
                 else:
-                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+                    reporter.log_success(f"Clean scenario: [dim]{res.probe_category}[/dim]")
 
     # 3e. Scenario Vectors (Pillar 5: Write-Side Poisoning)
     if scenario in ("write-poisoning", "write_poisoning") or suite in ("write-poisoning", "all"):
@@ -610,12 +766,16 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"Poison breach ({res.probe_category})! Injected tracer compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_skipped:
+                    reporter.log_active(
+                        f"Skipped scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 elif res.is_inconclusive:
                     reporter.log_active(
                         f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
                     )
                 else:
-                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+                    reporter.log_success(f"Clean scenario: [dim]{res.probe_category}[/dim]")
 
     # 3f. Scenario Vectors (Pillar 6: Agent, Memory & Tool Channels)
     if scenario in ("agent-memory", "agent_memory") or suite in ("agent-memory", "all"):
@@ -635,12 +795,16 @@ def run_scan_flow(
                     reporter.log_alert(
                         f"Memory breach ({res.probe_category})! Canary compromised: [bold red]{res.leaked_canaries[0]}[/bold red]"
                     )
+                elif res.is_skipped:
+                    reporter.log_active(
+                        f"Skipped scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
+                    )
                 elif res.is_inconclusive:
                     reporter.log_active(
                         f"Inconclusive scenario: [dim]{res.probe_category}[/dim] ({res.target_response})"
                     )
                 else:
-                    reporter.log_success(f"Passed scenario: [dim]{res.probe_category}[/dim]")
+                    reporter.log_success(f"Clean scenario: [dim]{res.probe_category}[/dim]")
 
     # Step 4: Atmospheric Telemetry Report Card
     summary = reporter.calculate_summary(
@@ -691,7 +855,31 @@ def run_scan_flow(
             adapter.cleanup(env.base_url, bob_session)
             from probes.disposable_registry import clear_trusted_registry
             clear_trusted_registry()
+
+        if identity_mode == "provision" and provisioned_records:
+            with console.status("[bold cyan]Decommissioning provisioned test personas...", spinner="dots"):
+                clean_ok, clean_failures = identity_mgr.cleanup_provisioned_identities(
+                    adapter=adapter,
+                    base_url=env.base_url,
+                    admin_token=admin_token,
+                    run_id=scan_run_id,
+                    records=provisioned_records,
+                    dry_run=dry_run,
+                )
+                if clean_ok:
+                    reporter.log_success("Provisioned test personas successfully decommissioned.")
+                else:
+                    reporter.log_alert(f"Failed to decommission some provisioned personas: {'; '.join(clean_failures)}")
         reporter.log_success("Scan cleanup routine completed; any ownership/cleanup failures were reported above.")
+    elif dry_run and identity_mode == "provision" and provisioned_records:
+        identity_mgr.cleanup_provisioned_identities(
+            adapter=adapter,
+            base_url=env.base_url,
+            admin_token=admin_token,
+            run_id=scan_run_id,
+            records=provisioned_records,
+            dry_run=True,
+        )
 
     # Teardown if managed by Docker
     if env.managed_by_docker:
@@ -699,11 +887,46 @@ def run_scan_flow(
             manager.stop(env)
         reporter.log_success("Container airway safely decommissioned.")
 
-    if (fail_on_leak and summary.firedamp_index > 0) or policy_failed:
-        reporter.log_alert("Hazardous atmosphere or policy violation detected! Halting execution with exit code 1.")
+    incomplete_failed = require_complete and (
+        summary.inconclusive_probes > 0
+        or summary.skipped_probes > 0
+        or summary.total_probes_executed == 0
+    )
+    if (fail_on_leak and summary.firedamp_index > 0) or policy_failed or incomplete_failed:
+        if incomplete_failed:
+            reporter.log_alert(
+                f"Incomplete scan coverage (executed={summary.total_probes_executed}, "
+                f"inconclusive={summary.inconclusive_probes}, skipped={summary.skipped_probes}) "
+                "with --require-complete enforced. Halting execution with exit code 1."
+            )
+        else:
+            reporter.log_alert("Hazardous atmosphere or policy violation detected! Halting execution with exit code 1.")
         return 1
 
     return 0
+
+
+def cleanup_identities_flow(
+    run_id: str,
+    target_url: Optional[str] = None,
+    allow_insecure_http: bool = False,
+) -> int:
+    """Recover and safely decommission orphaned test personas from an interrupted scan."""
+    reporter.print_banner()
+    from core.identity import IdentityManager
+    mgr = IdentityManager()
+    with console.status(f"[bold cyan]Recovering identity journal for run '{run_id}'...", spinner="dots"):
+        success, message = mgr.recover_and_cleanup_run(
+            run_id=run_id,
+            target_url=target_url,
+            allow_insecure_http=allow_insecure_http,
+        )
+    if success:
+        reporter.log_success(message)
+        return 0
+    else:
+        reporter.log_alert(message)
+        return 1
 
 
 def list_targets_flow() -> None:
@@ -772,6 +995,10 @@ try:
         policy: Optional[str] = typer.Option(None, "--policy", "-p", help="Path to declarative YAML policy file."),
         vector_db: str = typer.Option("chroma", "--vector-db", "-db", help="Target vector database backend ('chroma', 'milvus', 'qdrant')."),
         multitenancy: str = typer.Option("shared", "--multitenancy", "-m", help="Multitenancy architecture mode ('shared', 'isolated')."),
+        require_complete: bool = typer.Option(False, "--require-complete", help="Exit code 1 if any probe is inconclusive or skipped, or if zero probes executed."),
+        allow_insecure_http: bool = typer.Option(False, "--allow-insecure-http", help="Allow plain HTTP for non-loopback live targets (unsafe; isolated labs only)."),
+        identity_mode: str = typer.Option("existing", "--identity-mode", help="Identity lifecycle mode ('existing', 'provision')."),
+        confirm_provisioning: bool = typer.Option(False, "--confirm-provisioning", help="Confirm authorization to provision and delete test accounts on target."),
     ):
         """Execute a cross-tenant isolation and canary exfiltration scan."""
         exit_code = run_scan_flow(
@@ -789,6 +1016,25 @@ try:
             policy=policy,
             vector_db=vector_db,
             multitenancy=multitenancy,
+            require_complete=require_complete,
+            allow_insecure_http=allow_insecure_http,
+            identity_mode=identity_mode,
+            confirm_provisioning=confirm_provisioning,
+        )
+        if exit_code != 0:
+            raise typer.Exit(code=exit_code)
+
+    @app.command("cleanup-identities")
+    def cleanup_identities_cmd(
+        run_id: str = typer.Option(..., "--run-id", "-r", help="Run ID of the scan whose identities should be cleaned up."),
+        target_url: Optional[str] = typer.Option(None, "--target-url", "-u", help="URL of target deployment (optional, defaults to journal value)."),
+        allow_insecure_http: bool = typer.Option(False, "--allow-insecure-http", help="Allow plain HTTP for non-loopback URLs."),
+    ):
+        """Clean up and delete provisioned test personas from an interrupted or prior scan."""
+        exit_code = cleanup_identities_flow(
+            run_id=run_id,
+            target_url=target_url,
+            allow_insecure_http=allow_insecure_http,
         )
         if exit_code != 0:
             raise typer.Exit(code=exit_code)
@@ -834,6 +1080,16 @@ except ImportError:
         scan_parser.add_argument("--policy", "-p", default=None, help="Path to declarative YAML policy file")
         scan_parser.add_argument("--vector-db", "-db", default="chroma", choices=["chroma", "milvus", "qdrant"], help="Vector database backend (chroma, milvus, qdrant)")
         scan_parser.add_argument("--multitenancy", "-m", default="shared", choices=["shared", "isolated"], help="Multitenancy mode (shared, isolated)")
+        scan_parser.add_argument("--require-complete", action="store_true", help="Exit code 1 if any probe is inconclusive or skipped")
+        scan_parser.add_argument("--allow-insecure-http", action="store_true", help="Allow plain HTTP for non-loopback live targets (unsafe)")
+        scan_parser.add_argument("--identity-mode", default="existing", choices=["existing", "provision"], help="Identity lifecycle mode (existing, provision)")
+        scan_parser.add_argument("--confirm-provisioning", action="store_true", help="Confirm authorization to provision and delete test accounts on target")
+
+        # Cleanup identities command
+        cleanup_parser = subparsers.add_parser("cleanup-identities", help="Clean up provisioned test accounts")
+        cleanup_parser.add_argument("--run-id", "-r", required=True, help="Scan run ID")
+        cleanup_parser.add_argument("--target-url", "-u", default=None, help="Target URL override")
+        cleanup_parser.add_argument("--allow-insecure-http", action="store_true", help="Allow plain HTTP for non-loopback URLs")
 
         # List targets
         subparsers.add_parser("list-targets", help="List supported target platforms")
@@ -858,6 +1114,16 @@ except ImportError:
                 policy=args.policy,
                 vector_db=args.vector_db,
                 multitenancy=args.multitenancy,
+                require_complete=args.require_complete,
+                allow_insecure_http=args.allow_insecure_http,
+                identity_mode=args.identity_mode,
+                confirm_provisioning=args.confirm_provisioning,
+            ))
+        elif args.subcommand == "cleanup-identities":
+            sys.exit(cleanup_identities_flow(
+                run_id=args.run_id,
+                target_url=args.target_url,
+                allow_insecure_http=args.allow_insecure_http,
             ))
         elif args.subcommand == "list-targets":
             list_targets_flow()

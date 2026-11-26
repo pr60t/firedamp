@@ -22,6 +22,33 @@ class LeakSeverity(str, enum.Enum):
     CRITICAL = "critical"          # Full document contents or high-entropy secrets exposed
 
 
+class ProbeStatus(str, enum.Enum):
+    """Explicit outcome classification for every security probe."""
+    CLEAN = "clean"
+    COMPROMISED = "compromised"
+    INCONCLUSIVE = "inconclusive"
+    SKIPPED = "skipped"
+
+
+_SENSITIVE_PATTERNS = [
+    re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;\"']+"),
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9\-._~+/]+=*"),
+    re.compile(r"(?i)([\"']?(?:password|passwd|secret|token|api_key|access_token)[\"']?\s*[:=]\s*[\"']?)[^\s,;\"'\}]+"),
+]
+
+
+def sanitize_sensitive_text(text: Any, secrets_to_redact: Optional[List[str]] = None) -> str:
+    """Redact bearer tokens, passwords, and explicit secret values from logs and errors."""
+    s = "" if text is None else str(text)
+    if secrets_to_redact:
+        for secret in secrets_to_redact:
+            if isinstance(secret, str) and len(secret) >= 3:
+                s = s.replace(secret, "[REDACTED]")
+    for pat in _SENSITIVE_PATTERNS:
+        s = pat.sub(r"\1[REDACTED]", s)
+    return s
+
+
 @dataclass
 class CanaryToken:
     """A synthetically generated, high-entropy canary identifier."""
@@ -73,18 +100,55 @@ class ProbeResult:
     channel: str = "llm_prompt"  # prompt, direct_api, lifecycle, enumeration, write_side
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     inconclusive: bool = False
+    skipped: bool = False
+    status: Optional[ProbeStatus] = None
+
+    def __post_init__(self) -> None:
+        resp_lower = (self.target_response or "").lower()
+        if self.severity != LeakSeverity.NONE:
+            self.status = ProbeStatus.COMPROMISED
+        elif self.status is not None:
+            self.status = ProbeStatus(self.status)
+            if self.status == ProbeStatus.SKIPPED:
+                self.skipped = True
+            elif self.status == ProbeStatus.INCONCLUSIVE:
+                self.inconclusive = True
+        elif self.skipped or resp_lower.strip().startswith("skipped"):
+            self.skipped = True
+            self.status = ProbeStatus.SKIPPED
+        elif self.inconclusive or "inconclusive" in resp_lower:
+            self.inconclusive = True
+            self.status = ProbeStatus.INCONCLUSIVE
+        else:
+            self.status = ProbeStatus.CLEAN
 
     @property
     def is_leak(self) -> bool:
         return self.severity != LeakSeverity.NONE
 
     @property
+    def is_skipped(self) -> bool:
+        return not self.is_leak and (
+            self.status == ProbeStatus.SKIPPED
+            or self.skipped
+            or (self.target_response or "").strip().lower().startswith("skipped")
+        )
+
+    @property
     def is_inconclusive(self) -> bool:
-        return not self.is_leak and (self.inconclusive or "inconclusive" in (self.target_response or "").lower())
+        return (
+            not self.is_leak
+            and not self.is_skipped
+            and (
+                self.status == ProbeStatus.INCONCLUSIVE
+                or self.inconclusive
+                or "inconclusive" in (self.target_response or "").lower()
+            )
+        )
 
     @property
     def is_clean(self) -> bool:
-        return not self.is_leak and not self.is_inconclusive
+        return not self.is_leak and not self.is_inconclusive and not self.is_skipped
 
 
 class ProbingEngine:

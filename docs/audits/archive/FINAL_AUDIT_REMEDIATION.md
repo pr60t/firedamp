@@ -1,5 +1,9 @@
 # Firedamp — Final Audit Remediation Addendum
 
+> **Historical Archive Notice:**
+> - **Audit Date:** 2026-11-24–25 | **Baseline:** Pre-`v0.1.0` remediation overlay | **Validation Type:** Offline unit + simulation suites.
+> - **Status:** **HISTORICAL — SUPERSEDED** by `v0.1.0` and subsequent post-release hardening (`fix/post-release-hardening`). See [docs/audits/README.md](../README.md) for the current reconciled register.
+
 **Scope:** Remediation against the high-priority findings recorded in `FINAL_AUDIT.md`, using the supplied repository snapshot. This addendum records the changes made in the remediation overlay; it does not replace the original audit.
 
 ## Summary
