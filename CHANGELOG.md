@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-26
+
 ### Added
 - **Core Canary Probing Engine**: Generation, injection, and zero-VRAM exact-match / entropy verification of cryptographic canary tokens (`CANARY-FRDP-...`) across multi-tenant RAG systems.
 - **Audited 21-Vulnerability CVE Catalog**:
